@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "components/Rect.h"
+
 enum class InxItemLayout : uint8_t { Icons, List, Count };
 
 namespace InxCoverGeometry {
@@ -56,28 +58,21 @@ constexpr int pageStart(const int selected, const int itemCount) {
   return clamped / itemsPerPage * itemsPerPage;
 }
 
-struct Cell {
-  int x;
-  int y;
-  int width;
-  int height;
-};
-
-constexpr Cell cellBounds(const int slot, const int width, const int height) {
+constexpr Rect cellBounds(const int slot, const int width, const int height) {
   constexpr int inset = 4;
   const int column = slot % columns;
   const int row = slot / columns;
   const int left = column * width / columns;
   const int top = row * height / rows;
-  return {left + inset, top + inset, (column + 1) * width / columns - left - inset * 2,
-          (row + 1) * height / rows - top - inset * 2};
+  return Rect{left + inset, top + inset, (column + 1) * width / columns - left - inset * 2,
+              (row + 1) * height / rows - top - inset * 2};
 }
 
 constexpr int indexFromPoint(const int x, const int y, const int width, const int height, const int start,
                              const int itemCount) {
   if (x < 0 || y < 0 || x >= width || y >= height || width <= 0 || height <= 0) return -1;
   for (int slot = 0; slot < itemsPerPage && start + slot < itemCount; ++slot) {
-    const Cell cell = cellBounds(slot, width, height);
+    const Rect cell = cellBounds(slot, width, height);
     if (x >= cell.x && x < cell.x + cell.width && y >= cell.y && y < cell.y + cell.height) return start + slot;
   }
   return -1;

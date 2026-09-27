@@ -142,7 +142,7 @@ void ActivityManager::loop() {
       int tx = 0;
       int ty = 0;
       if (currentActivity->usesMainTabBar()) {
-        const Rect status = currentActivity->mainTabStatusBarRect();
+        const Rect status = currentActivity->mainTabLayout().statusBar;
         statusBarTap = mappedInput.wasScreenTapped(tx, ty) && tx >= status.x && tx < status.x + status.width &&
                        ty >= status.y && ty < status.y + status.height;
       } else if (currentActivity->name == "Home" || currentActivity->name == "FileBrowser" ||
@@ -264,7 +264,7 @@ bool ActivityManager::handleMainTabInput() {
   if (!currentActivity || !currentActivity->usesMainTabBar()) return false;
 
   const MainTab currentTab = currentActivity->mainTab();
-  const Rect tabBar = currentActivity->mainTabBarRect();
+  const Rect tabBar = currentActivity->mainTabLayout().tabBar;
   const int tabTop = tabBar.y;
   const int tabBottom = tabBar.y + tabBar.height;
 

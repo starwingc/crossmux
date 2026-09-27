@@ -1044,11 +1044,7 @@ std::string SettingsActivity::settingValueText(const SettingInfo& setting) {
 void SettingsActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const bool boldChineseCategories = I18N.getLanguage() == Language::ZH_CN;
-  const Rect content =
-      usesMainTabBar()
-          ? mainTabContentRect()
-          : Rect{0, metrics.topPadding + metrics.headerHeight, renderer.getScreenWidth(),
-                 renderer.getScreenHeight() - metrics.topPadding - metrics.headerHeight - metrics.buttonHintsHeight};
+  const Rect content = pageContentRect();
   screen.setContentMarginFromScreen(fui::Insets{
       static_cast<int16_t>(content.y), static_cast<int16_t>(renderer.getScreenWidth() - content.x - content.width),
       static_cast<int16_t>(renderer.getScreenHeight() - content.y - content.height), static_cast<int16_t>(content.x)});

@@ -20,22 +20,22 @@ class ControlCenterGestureTest(unittest.TestCase):
 #include <cassert>
 #include <memory>
 #include <string>
+#include "activities/MainTab.h"
 #define LOG_ERR(...) ((void)0)
 enum { eIncrement };
 void xTaskNotify(int, int, int) {}
-struct Rect { int x, y, width, height; };
 struct Activity {
   std::string name = "InxRecent";
   bool reader = false, exclusive = false;
   bool mainTabs = false;
-  Rect status = {3, 9, 474, 44};
+  Rect status{3, 9, 474, 44};
   int loops = 0;
   bool requiresExclusiveStorageLoop() { return exclusive; }
   bool isReaderActivity() { return reader; }
   bool isHomeActivity() { return false; }
   bool handleHomeGesture() { return false; }
   bool usesMainTabBar() { return mainTabs; }
-  Rect mainTabStatusBarRect() { return status; }
+  MainTabLayout mainTabLayout() { return {Rect{}, status, Rect{}}; }
   void loop() { ++loops; }
 };
 struct Input {
@@ -103,7 +103,7 @@ int main() {
               {.topSwipe = false, .tap = true, .tapX = x, .tapY = y}, opens, !opens);
       }
     // Top tabs have no status bar; button-only devices ignore touch input.
-    check({.name = name, .mainTabs = true, .status = {3, 9, 474, 0}},
+    check({.name = name, .mainTabs = true, .status = Rect{3, 9, 474, 0}},
           {.topSwipe = false, .tap = true}, false, true);
     check({.name = name, .mainTabs = true},
           {.topSwipe = false, .tap = true, .touch = false}, false, true);
@@ -121,7 +121,7 @@ int main() {
             exe = Path(directory) / "check"
             cpp.write_text(harness + dispatch + cases)
             subprocess.run(shlex.split(os.environ.get("CXX", "c++")) + [
-                "-std=c++20", str(cpp), "-o", str(exe)], check=True)
+                "-std=c++20", "-I" + str(ROOT / "src"), str(cpp), "-o", str(exe)], check=True)
             subprocess.run([str(exe)], check=True)
 
 

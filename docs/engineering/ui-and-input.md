@@ -163,6 +163,9 @@ action**.
   region share the main-tab layout, which also reserves viewable margins and
   at least 6 px between the status bar, content and navigation. Other modes
   retain the INX home battery on the opposite edge from the tabs.
+  `Activity::mainTabLayout()` resolves complete status, content and navigation
+  rectangles in one pass; `pageContentRect()` also owns the normal-header
+  fallback, so pages do not repeat the main-tab eligibility/layout calculation.
 * `GUI.drawProgressBar()` returns the first free Y coordinate after the bar and
   optional percentage line. Callers place following text from that value rather
   than reproducing the theme's font or spacing calculations.

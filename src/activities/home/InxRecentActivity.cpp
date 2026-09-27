@@ -103,7 +103,7 @@ InxRecentLayout InxRecentActivity::layout() const {
 }
 
 Rect InxRecentActivity::contentRect() const {
-  Rect content = mainTabContentRect();
+  Rect content = pageContentRect();
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int topInset = mainTabsAtBottom() && !hasMainTabStatusBar() ? metrics.batteryBarHeight : 0;
   content.y += topInset + metrics.verticalSpacing;

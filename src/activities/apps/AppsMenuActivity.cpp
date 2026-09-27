@@ -163,12 +163,17 @@ bool AppsMenuActivity::usesIconLayout() const {
          InxGridGeometry::layoutFrom(SETTINGS.inxAppsLayout) == InxItemLayout::Icons;
 }
 
+Rect AppsMenuActivity::appContentRect() const {
+  const int spacing = UITheme::getInstance().getMetrics().verticalSpacing;
+  Rect content = pageContentRect();
+  content.y += spacing;
+  content.height -= spacing * 2;
+  return content;
+}
+
 int AppsMenuActivity::iconIndexFromPoint(const int x, const int y) const {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const Rect content = mainTabContentRect();
-  const int top = content.y + metrics.verticalSpacing;
-  const int height = content.height - metrics.verticalSpacing * 2;
-  return InxGridGeometry::indexFromPoint(x - content.x, y - top, content.width, height,
+  const Rect content = appContentRect();
+  return InxGridGeometry::indexFromPoint(x - content.x, y - content.y, content.width, content.height,
                                          InxGridGeometry::pageStart(nav.selected, getVisibleAppCount()),
                                          getVisibleAppCount());
 }
@@ -248,27 +253,20 @@ void AppsMenuActivity::drawIconGrid(const Rect& rect, const int visibleCount, co
 }
 
 void AppsMenuActivity::buildScreen(UiScreen& screen) {
-  const auto& metrics = UITheme::getInstance().getMetrics();
   const int sw = renderer.getScreenWidth();
   const int sh = renderer.getScreenHeight();
-  const Rect mainContent = usesMainTabBar()
-                               ? mainTabContentRect()
-                               : Rect{0, metrics.topPadding + metrics.headerHeight, sw,
-                                      sh - metrics.topPadding - metrics.headerHeight - metrics.buttonHintsHeight};
-  const int listY = mainContent.y + metrics.verticalSpacing;
-  const int listH = mainContent.height - metrics.verticalSpacing * 2;
+  const Rect content = appContentRect();
   const int visibleCount = getVisibleAppCount();
   const bool showSelection = showMainTabContentSelection();
 
   if (visibleCount == 0) {
-    UITheme::drawCenteredWrappedText(renderer, Rect{mainContent.x, listY, mainContent.width, listH}, UI_12_FONT_ID,
-                                     tr(STR_NO_APPS_ENABLED), 2);
+    UITheme::drawCenteredWrappedText(renderer, content, UI_12_FONT_ID, tr(STR_NO_APPS_ENABLED), 2);
   } else if (usesIconLayout()) {
-    drawIconGrid(Rect{mainContent.x, listY, mainContent.width, listH}, visibleCount, showSelection);
+    drawIconGrid(content, visibleCount, showSelection);
   } else {
     screen.setContentMarginFromScreen(
-        fui::Insets{static_cast<int16_t>(listY), static_cast<int16_t>(sw - mainContent.x - mainContent.width),
-                    static_cast<int16_t>(sh - listY - listH), static_cast<int16_t>(mainContent.x)});
+        fui::Insets{static_cast<int16_t>(content.y), static_cast<int16_t>(sw - content.x - content.width),
+                    static_cast<int16_t>(sh - content.y - content.height), static_cast<int16_t>(content.x)});
     fui::ListProps props;
     props.items = rowItems.data();
     props.count = static_cast<uint16_t>(rowItems.size());

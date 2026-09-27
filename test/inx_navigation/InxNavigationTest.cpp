@@ -63,20 +63,24 @@ TEST(InxNavigation, WrapsAcrossFiveTabs) {
 }
 
 TEST(InxNavigation, PlacesTabsWithoutOverlappingContent) {
-  constexpr MainTabLayout top = MainTabs::layout(800, 0, 66, 40, false);
-  EXPECT_EQ(top.tabTop, 0);
-  EXPECT_EQ(top.contentTop, 66);
-  EXPECT_EQ(top.contentBottom, 760);
+  constexpr Rect safe{0, 0, 480, 760};
+  constexpr MainTabLayout top = MainTabs::layout(safe, 0, 66, false);
+  EXPECT_EQ(top.tabBar.y, 0);
+  EXPECT_EQ(top.tabBar.height, 66);
+  EXPECT_EQ(top.content.y, 66);
+  EXPECT_EQ(top.content.y + top.content.height, 760);
+  EXPECT_EQ(top.statusBar.height, 0);
 
-  constexpr MainTabLayout bottom = MainTabs::layout(800, 0, 66, 40, true);
-  EXPECT_EQ(bottom.tabTop, 694);
-  EXPECT_EQ(bottom.contentTop, 0);
-  EXPECT_EQ(bottom.contentBottom, 694);
+  constexpr MainTabLayout bottom = MainTabs::layout(safe, 0, 66, true);
+  EXPECT_EQ(bottom.tabBar.y, 694);
+  EXPECT_EQ(bottom.content.y, 0);
+  EXPECT_EQ(bottom.content.y + bottom.content.height, 694);
+  EXPECT_EQ(bottom.statusBar.height, 0);
 
-  constexpr MainTabLayout touchBottom = MainTabs::layout(480, 5, 45, 0, true);
-  EXPECT_EQ(touchBottom.tabTop, 435);
-  EXPECT_EQ(touchBottom.contentTop, 5);
-  EXPECT_EQ(touchBottom.contentBottom, 435);
+  constexpr MainTabLayout touchBottom = MainTabs::layout(Rect{0, 0, 800, 480}, 5, 45, true);
+  EXPECT_EQ(touchBottom.tabBar.y, 435);
+  EXPECT_EQ(touchBottom.content.y, 5);
+  EXPECT_EQ(touchBottom.content.y + touchBottom.content.height, 435);
 }
 
 TEST(InxNavigation, SharesTabDrawingAndHitBoundsIncludingGaps) {
@@ -109,13 +113,36 @@ TEST(InxNavigation, ReservesStatusAndContentGapsInsideSafeArea) {
     constexpr int safeTop = 8;
     constexpr int safeBottom = 10;
     constexpr int hints = 40;
-    const auto layout = MainTabs::layout(height - safeBottom, safeTop, 66, hints, true, MainTabs::statusBarHeight);
-    EXPECT_EQ(layout.statusTop, safeTop);
-    EXPECT_EQ(layout.statusHeight, 44);
-    EXPECT_EQ(layout.contentTop - (layout.statusTop + layout.statusHeight), 6);
-    EXPECT_EQ(layout.tabTop - layout.contentBottom, 6);
-    EXPECT_EQ(layout.tabTop + 66 + hints, height - safeBottom);
-    EXPECT_GT(layout.contentBottom, layout.contentTop);
+    constexpr int safeLeft = 3;
+    constexpr int safeWidth = 474;
+    const Rect safe{safeLeft, safeTop, safeWidth, height - safeTop - safeBottom - hints};
+    const auto layout = MainTabs::layout(safe, 0, 66, true, MainTabs::statusBarHeight);
+    EXPECT_EQ(layout.statusBar.y, safeTop);
+    EXPECT_EQ(layout.statusBar.height, 44);
+    EXPECT_EQ(layout.content.y - (layout.statusBar.y + layout.statusBar.height), 6);
+    EXPECT_EQ(layout.tabBar.y - (layout.content.y + layout.content.height), 6);
+    EXPECT_EQ(layout.tabBar.y + layout.tabBar.height + hints, height - safeBottom);
+    EXPECT_GT(layout.content.height, 0);
+    for (const Rect& rect : {layout.tabBar, layout.statusBar, layout.content}) {
+      EXPECT_EQ(rect.x, safeLeft);
+      EXPECT_EQ(rect.width, safeWidth);
+    }
+  }
+}
+
+TEST(InxNavigation, PreservesSafeOriginAndTopPaddingInBothPositions) {
+  constexpr Rect safe{17, 9, 453, 788};
+  for (const bool bottom : {false, true}) {
+    const auto layout = MainTabs::layout(safe, 5, 66, bottom, 44);
+    EXPECT_EQ(layout.tabBar.y, bottom ? 731 : 14);
+    EXPECT_EQ(layout.statusBar.y, 14);
+    EXPECT_EQ(layout.statusBar.height, bottom ? 44 : 0);
+    EXPECT_EQ(layout.content.y, bottom ? 64 : 80);
+    EXPECT_EQ(layout.content.y + layout.content.height, bottom ? 725 : 797);
+    for (const Rect& rect : {layout.tabBar, layout.statusBar, layout.content}) {
+      EXPECT_EQ(rect.x, safe.x);
+      EXPECT_EQ(rect.width, safe.width);
+    }
   }
 }
 

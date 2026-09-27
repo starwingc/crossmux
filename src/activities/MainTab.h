@@ -1,19 +1,20 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
+
+#include "components/Rect.h"
 
 enum class MainTab : uint8_t { None, Recent, Library, Apps, Settings, Statistics };
 enum class MainTabFocus : uint8_t { Tabs, Content };
 enum class MainTabContentEdge : uint8_t { First, Last };
 
 struct MainTabLayout {
-  int tabTop;
-  int contentTop;
-  int contentBottom;
-  int statusTop;
-  int statusHeight;
+  Rect tabBar;
+  Rect statusBar;
+  Rect content;
 };
 
 namespace MainTabs {
@@ -61,13 +62,17 @@ constexpr bool showsStatusBar(const bool usesMainTabs, const bool hasTouch, cons
   return usesMainTabs && hasTouch && tabsAtBottom;
 }
 
-constexpr MainTabLayout layout(const int screenHeight, const int topPadding, const int tabHeight, const int bottomInset,
-                               const bool tabsAtBottom, const int statusHeight = 0) {
-  const int usableBottom = screenHeight - bottomInset;
-  const int gap = statusHeight > 0 ? controlGap : 0;
-  return tabsAtBottom ? MainTabLayout{usableBottom - tabHeight, topPadding + statusHeight + gap,
-                                      usableBottom - tabHeight - gap, topPadding, statusHeight}
-                      : MainTabLayout{topPadding, topPadding + tabHeight, usableBottom, topPadding, 0};
+constexpr MainTabLayout layout(const Rect& safeArea, const int topPadding, const int tabHeight, const bool tabsAtBottom,
+                               const int statusHeight = 0) {
+  const int top = safeArea.y + topPadding;
+  const int bottom = safeArea.y + safeArea.height;
+  const int status = tabsAtBottom ? statusHeight : 0;
+  const int gap = status > 0 ? controlGap : 0;
+  const int tabTop = tabsAtBottom ? bottom - tabHeight : top;
+  const int contentTop = tabsAtBottom ? top + status + gap : top + tabHeight;
+  const int contentBottom = tabsAtBottom ? tabTop - gap : bottom;
+  return {Rect{safeArea.x, tabTop, safeArea.width, tabHeight}, Rect{safeArea.x, top, safeArea.width, status},
+          Rect{safeArea.x, contentTop, safeArea.width, std::max(0, contentBottom - contentTop)}};
 }
 
 constexpr int contentEdgeIndex(const MainTabContentEdge edge, const int count) {

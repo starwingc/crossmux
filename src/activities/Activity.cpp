@@ -41,52 +41,38 @@ bool Activity::hasMainTabStatusBar() const {
   return MainTabs::showsStatusBar(usesMainTabBar(), mappedInput.hasTouch(), mainTabsAtBottom());
 }
 
-Rect Activity::mainTabSafeArea() const {
-  auto& theme = UITheme::getInstance();
-  if (!hasMainTabStatusBar()) {
-    return Rect{0, 0, renderer.getScreenWidth(), renderer.getScreenHeight() - theme.getMetrics().buttonHintsHeight};
-  }
-  Rect safe = theme.getScreenSafeArea(renderer, true);
-  int top, right, bottom, left;
-  renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
-  const int safeRight = std::min(safe.x + safe.width, renderer.getScreenWidth() - right);
-  const int safeBottom = std::min(safe.y + safe.height, renderer.getScreenHeight() - bottom);
-  safe.x = std::max(safe.x, left);
-  safe.y = std::max(safe.y, top);
-  safe.width = std::max(0, safeRight - safe.x);
-  safe.height = std::max(0, safeBottom - safe.y);
-  return safe;
-}
-
 MainTabLayout Activity::mainTabLayout() const {
+  auto& theme = UITheme::getInstance();
+  const auto& metrics = theme.getMetrics();
+  const bool showStatus = hasMainTabStatusBar();
+  Rect safe{0, 0, renderer.getScreenWidth(), renderer.getScreenHeight() - metrics.buttonHintsHeight};
+  if (showStatus) {
+    safe = theme.getScreenSafeArea(renderer, true);
+    int top, right, bottom, left;
+    renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+    const int safeRight = std::min(safe.x + safe.width, renderer.getScreenWidth() - right);
+    const int safeBottom = std::min(safe.y + safe.height, renderer.getScreenHeight() - bottom);
+    safe.x = std::max(safe.x, left);
+    safe.y = std::max(safe.y, top);
+    safe.width = std::max(0, safeRight - safe.x);
+    safe.height = std::max(0, safeBottom - safe.y);
+  }
+  return MainTabs::layout(safe, metrics.topPadding, metrics.headerHeight, mainTabsAtBottom(),
+                          showStatus ? MainTabs::statusBarHeight : 0);
+}
+
+Rect Activity::pageContentRect() const {
+  if (usesMainTabBar()) return mainTabLayout().content;
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const Rect safe = mainTabSafeArea();
-  return MainTabs::layout(safe.y + safe.height, safe.y + metrics.topPadding, metrics.headerHeight, 0,
-                          mainTabsAtBottom(), hasMainTabStatusBar() ? MainTabs::statusBarHeight : 0);
-}
-
-Rect Activity::mainTabBarRect() const {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const Rect safe = mainTabSafeArea();
-  return Rect{safe.x, mainTabLayout().tabTop, safe.width, metrics.headerHeight};
-}
-
-Rect Activity::mainTabStatusBarRect() const {
-  const Rect safe = mainTabSafeArea();
-  const MainTabLayout layout = mainTabLayout();
-  return Rect{safe.x, layout.statusTop, safe.width, layout.statusHeight};
-}
-
-Rect Activity::mainTabContentRect() const {
-  const MainTabLayout layout = mainTabLayout();
-  const Rect safe = mainTabSafeArea();
-  return Rect{safe.x, layout.contentTop, safe.width, std::max(0, layout.contentBottom - layout.contentTop)};
+  const int top = metrics.topPadding + metrics.headerHeight;
+  return Rect{0, top, renderer.getScreenWidth(), renderer.getScreenHeight() - top - metrics.buttonHintsHeight};
 }
 
 void Activity::drawPageHeader(const Rect& rect, const char* title, const char* subtitle) const {
   if (usesMainTabBar()) {
-    GUI.drawMainTabBar(renderer, mainTabBarRect(), mainTab());
-    if (hasMainTabStatusBar()) GUI.drawMainTabStatusBar(renderer, mainTabStatusBarRect());
+    const MainTabLayout layout = mainTabLayout();
+    GUI.drawMainTabBar(renderer, layout.tabBar, mainTab());
+    if (layout.statusBar.height > 0) GUI.drawMainTabStatusBar(renderer, layout.statusBar);
   } else {
     GUI.drawHeader(renderer, rect, title, subtitle);
   }
