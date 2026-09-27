@@ -161,7 +161,6 @@ template<class T> class PersistableStore {
 #include <thread>
 #include <type_traits>
 uint8_t CrossPointSettings::defaultLanguageIndex() { return 0; }
-uint8_t CrossPointSettings::defaultInxTabPosition() { return INX_TAB_BOTTOM; }
 template<class T,class=void> struct HasHapticSetting : std::false_type {};
 template<class T> struct HasHapticSetting<T,std::void_t<decltype(std::declval<T>().hapticFeedbackLevel)>>
  : std::true_type {};

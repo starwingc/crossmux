@@ -29,7 +29,6 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Returns the first-boot/fallback Language enum index. Defined out of line so
   // I18nKeys.h stays out of this widely included header.
   static uint8_t defaultLanguageIndex();
-  static uint8_t defaultInxTabPosition();
 
   static constexpr uint8_t CURRENT_ONBOARDING_VERSION = 1;
   static constexpr bool requiresOnboarding(const uint8_t completedVersion) {
@@ -376,7 +375,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t inxRecentLayout = static_cast<uint8_t>(InxRecentLayout::Flow);
   uint8_t inxLibraryLayout = static_cast<uint8_t>(InxItemLayout::Icons);
   uint8_t inxAppsLayout = static_cast<uint8_t>(InxItemLayout::Icons);
-  uint8_t inxTabPosition = defaultInxTabPosition();
+  uint8_t inxTabPosition = BoardConfig::hasTouch() ? INX_TAB_BOTTOM : INX_TAB_TOP;
   // Show and enable the Standby shortcut on the home screen.
   uint8_t standbyShortcutEnabled = 1;
   // Sunlight fading compensation
