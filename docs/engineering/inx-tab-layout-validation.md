@@ -12,10 +12,13 @@ adding periodic display refreshes. Battery percentage follows its existing setti
 
 Bottom navigation keeps its 66 px height: the 1 px separator sits on its top
 edge, with the centered 38 × 5 px selected marker covering that segment.
-The 38 px icons sit 4 px above the navigation area's bottom edge, 10 px lower
-than the previous centered layout. Board safe margins, physical-button hints,
-tab hit regions and their 6 px gaps are unchanged. Top-tab rendering, content
-and the time/battery status bar are unchanged.
+The 38 px icons sit 16 px above the navigation area's bottom edge, leaving a
+7 px gap between the selected marker and the icon box. This moves the icons up
+12 px from the previous 4 px-inset version. The inset is visual padding inside
+the navigation area, additional to the board's safe margins rather than a
+replacement for them. Physical-button hints, tab hit regions and their 6 px gaps
+are unchanged. Top-tab rendering, content and the time/battery status bar are
+unchanged.
 
 ## Automated checks
 
@@ -51,11 +54,12 @@ tap the status/content gap and a tab gap without activation, and open Book 01
 and Book 22 (the last fully visible item after scrolling) from the library.
 Selecting Top in Settings persists across a process restart.
 
-After the bottom-alignment change, all twelve scenarios were rerun. Pixel
-comparisons of the 56 main-page screenshots against the previous build verified
-the top-edge separator and 38 × 5 px selected segment, the unchanged icon strip
-shifted down exactly 10 px, and the 4 px clear bottom inset. The same comparisons
-confirmed unchanged top-tab strips, safe margins and X4 physical-button hints.
+After increasing the bottom inset to 16 px, all twelve scenarios were rerun.
+Pixel comparisons of the 56 main-page screenshots against the previous 4 px-inset
+build verified the top-edge separator and 38 × 5 px selected segment, the unchanged
+icon strip shifted up exactly 12 px, the 7 px marker-to-icon-box gap, and the
+16 px clear bottom inset. The same comparisons confirmed unchanged top-tab
+strips, safe margins and X4 physical-button hints.
 
 Use `CROSSPOINT_SIM_SD` to select an isolated SD directory. Its
 `.crosspoint/settings.json` can start with
