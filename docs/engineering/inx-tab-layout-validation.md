@@ -10,6 +10,13 @@ All five tabs share this geometry. The clock follows the configured format and
 time zone; invalid time displays `--:--`. It updates on page renders, without
 adding periodic display refreshes. Battery percentage follows its existing setting.
 
+Bottom navigation keeps its 66 px height: the 1 px separator sits on its top
+edge, with the centered 38 × 5 px selected marker covering that segment.
+The 38 px icons sit 4 px above the navigation area's bottom edge, 10 px lower
+than the previous centered layout. Board safe margins, physical-button hints,
+tab hit regions and their 6 px gaps are unchanged. Top-tab rendering, content
+and the time/battery status bar are unchanged.
+
 ## Automated checks
 
 ```sh
@@ -39,6 +46,12 @@ touch checks open and dismiss the control center from every bottom-tab page,
 tap the status/content gap and a tab gap without activation, and open Book 01
 and Book 22 (the last fully visible item after scrolling) from the library.
 Selecting Top in Settings persists across a process restart.
+
+After the bottom-alignment change, all twelve scenarios were rerun. Pixel
+comparisons of the 56 main-page screenshots against the previous build verified
+the top-edge separator and 38 × 5 px selected segment, the unchanged icon strip
+shifted down exactly 10 px, and the 4 px clear bottom inset. The same comparisons
+confirmed unchanged top-tab strips, safe margins and X4 physical-button hints.
 
 Use `CROSSPOINT_SIM_SD` to select an isolated SD directory. Its
 `.crosspoint/settings.json` can start with
@@ -86,13 +99,15 @@ retains selection highlighting; hardware touch-focus policy is unchanged.
 
 ![M4 landscape statistics](images/inx-tabs/m4-landscape-stats.png)
 
+[X4 bottom tabs with physical-button hints](images/inx-tabs/x4-bottom.png)
+
 Physical touch-controller behavior, EPD ghosting, refresh timing, and power
 consumption still require device validation; the simulator does not model them.
 
 ## Hardware build results
 
 PaperMono builds successfully with a fresh isolated PlatformIO core/package
-directory: 116,076 bytes static RAM and 5,957,286 bytes Flash reported by
+directory: 116,076 bytes static RAM and 5,957,294 bytes Flash reported by
 PlatformIO. These are complete-image sizes, not incremental costs of this change.
 
 The default C3 build compiles but fails to link with missing
