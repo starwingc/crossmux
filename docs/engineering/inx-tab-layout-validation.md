@@ -26,6 +26,7 @@ unchanged.
 cmake -S test -B build/test
 cmake --build build/test --target InxNavigationTest TimeUtilsTest -j 4
 ctest --test-dir build/test -R 'InxNavigation|TimeUtils|ControlCenterGesture|InxStyleCompatibility' --output-on-failure
+python3 -m unittest discover -v -s scripts/tests
 ./bin/clang-format-fix --check
 pio run -e simulator -e simulator_eego_a4 -e simulator_murphy_m4
 ```
@@ -37,6 +38,11 @@ the main-tab status rectangle required by the existing runtime code; its stale
 Activity stub caused the previous CI compilation failure. It exercises all
 five pages at each status-rectangle edge and outside it, including the content
 gap, zero-height status bars (top tabs), and non-touch input.
+
+The Python script suite also passes: 70 tests passed and one skipped. The
+Metalio host harness now supplies `defaultInxTabPosition()` alongside its
+existing language-default stub, fixing its standalone settings-constructor
+link failure without changing runtime behavior.
 
 ## Native simulator checks
 
