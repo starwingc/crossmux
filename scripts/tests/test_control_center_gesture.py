@@ -23,22 +23,29 @@ class ControlCenterGestureTest(unittest.TestCase):
 #define LOG_ERR(...) ((void)0)
 enum { eIncrement };
 void xTaskNotify(int, int, int) {}
+struct Rect { int x, y, width, height; };
 struct Activity {
   std::string name = "InxRecent";
   bool reader = false, exclusive = false;
+  bool mainTabs = false;
+  Rect status = {3, 9, 474, 44};
   int loops = 0;
   bool requiresExclusiveStorageLoop() { return exclusive; }
   bool isReaderActivity() { return reader; }
   bool isHomeActivity() { return false; }
   bool handleHomeGesture() { return false; }
+  bool usesMainTabBar() { return mainTabs; }
+  Rect mainTabStatusBarRect() { return status; }
   void loop() { ++loops; }
 };
 struct Input {
   bool topSwipe = true, light = false, tap = false, suppressed = false;
+  bool touch = true;
+  int tapX = 20, tapY = 10;
   bool consumeSuppressedRelease() { return suppressed; }
   bool wasHomeGesture() { return false; }
-  bool hasTouch() { return true; }
-  bool wasScreenTapped(int&, int& y) { y = 10; return tap; }
+  bool hasTouch() { return touch; }
+  bool wasScreenTapped(int& x, int& y) { x = tapX; y = tapY; return tap; }
   bool wasLightPanelGesture() { return light && topSwipe; }
   bool wasMenuGesture() { return topSwipe; }
 };
@@ -87,6 +94,19 @@ int main() {
     const bool opens = page == "Home" || page == "FileBrowser" ||
                        page == "Settings" || page == "NetworkModeSelection";
     check({.name = name}, {.topSwipe = false, .tap = true}, opens, !opens);
+  }
+  for (const char* name : {"InxRecent", "FileBrowser", "AppsMenu", "Settings", "ReadingStats"}) {
+    for (int x : {2, 3, 476, 477})
+      for (int y : {8, 9, 52, 53, 59}) {
+        const bool opens = x >= 3 && x < 477 && y >= 9 && y < 53;
+        check({.name = name, .mainTabs = true},
+              {.topSwipe = false, .tap = true, .tapX = x, .tapY = y}, opens, !opens);
+      }
+    // Top tabs have no status bar; button-only devices ignore touch input.
+    check({.name = name, .mainTabs = true, .status = {3, 9, 474, 0}},
+          {.topSwipe = false, .tap = true}, false, true);
+    check({.name = name, .mainTabs = true},
+          {.topSwipe = false, .tap = true, .touch = false}, false, true);
   }
   check({}, {.light = true, .suppressed = true}, false, false);
   check({.exclusive = true}, {.light = true}, false, true);

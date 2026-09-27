@@ -22,14 +22,18 @@ and the time/battery status bar are unchanged.
 ```sh
 cmake -S test -B build/test
 cmake --build build/test --target InxNavigationTest TimeUtilsTest -j 4
-ctest --test-dir build/test -R 'InxNavigation|TimeUtils' --output-on-failure
+ctest --test-dir build/test -R 'InxNavigation|TimeUtils|ControlCenterGesture|InxStyleCompatibility' --output-on-failure
 ./bin/clang-format-fix --check
 pio run -e simulator -e simulator_eego_a4 -e simulator_murphy_m4
 ```
 
-The 27 host tests cover tab order, drawing/hit bounds and gaps, status-bar
+The 29 focused checks cover tab order, drawing/hit bounds and gaps, status-bar
 eligibility, content reservations, app-grid hit bounds, and valid/invalid
-12/24-hour time formatting.
+12/24-hour time formatting. The control-center dispatch harness now supplies
+the main-tab status rectangle required by the existing runtime code; its stale
+Activity stub caused the previous CI compilation failure. It exercises all
+five pages at each status-rectangle edge and outside it, including the content
+gap, zero-height status bars (top tabs), and non-touch input.
 
 ## Native simulator checks
 
