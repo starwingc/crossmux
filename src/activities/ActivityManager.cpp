@@ -138,12 +138,17 @@ void ActivityManager::loop() {
 
     // Touch users can also open the global control center from the status bar.
     bool statusBarTap = false;
-    if (mappedInput.hasTouch() &&
-        (currentActivity->name == "Home" || currentActivity->name == "FileBrowser" ||
-         currentActivity->name == "Settings" || currentActivity->name == "NetworkModeSelection")) {
+    if (mappedInput.hasTouch()) {
       int tx = 0;
       int ty = 0;
-      statusBarTap = mappedInput.wasScreenTapped(tx, ty) && ty < 44;
+      if (currentActivity->usesMainTabBar()) {
+        const Rect status = currentActivity->mainTabStatusBarRect();
+        statusBarTap = mappedInput.wasScreenTapped(tx, ty) && tx >= status.x && tx < status.x + status.width &&
+                       ty >= status.y && ty < status.y + status.height;
+      } else if (currentActivity->name == "Home" || currentActivity->name == "FileBrowser" ||
+                 currentActivity->name == "Settings" || currentActivity->name == "NetworkModeSelection") {
+        statusBarTap = mappedInput.wasScreenTapped(tx, ty) && ty >= 0 && ty < 44;
+      }
     }
     if (currentActivity->name != "FrontlightPanel" && (statusBarTap || mappedInput.wasLightPanelGesture())) {
       auto panel = makeUniqueNoThrow<FrontlightPanelActivity>(renderer, mappedInput);

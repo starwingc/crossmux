@@ -722,9 +722,9 @@ void FileBrowserActivity::buildScreen(UiScreen& screen) {
           ? mainTabContentRect()
           : Rect{0, metrics.topPadding + metrics.headerHeight, renderer.getScreenWidth(),
                  renderer.getScreenHeight() - metrics.topPadding - metrics.headerHeight - metrics.buttonHintsHeight};
-  screen.setContentMarginFromScreen(
-      fui::Insets{static_cast<int16_t>(content.y), 0,
-                  static_cast<int16_t>(renderer.getScreenHeight() - content.y - content.height), 0});
+  screen.setContentMarginFromScreen(fui::Insets{
+      static_cast<int16_t>(content.y), static_cast<int16_t>(renderer.getScreenWidth() - content.x - content.width),
+      static_cast<int16_t>(renderer.getScreenHeight() - content.y - content.height), static_cast<int16_t>(content.x)});
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
   // Full path band at the bottom: separator on top, left-truncated so the

@@ -168,7 +168,7 @@ int AppsMenuActivity::iconIndexFromPoint(const int x, const int y) const {
   const Rect content = mainTabContentRect();
   const int top = content.y + metrics.verticalSpacing;
   const int height = content.height - metrics.verticalSpacing * 2;
-  return InxGridGeometry::indexFromPoint(x, y - top, renderer.getScreenWidth(), height,
+  return InxGridGeometry::indexFromPoint(x - content.x, y - top, content.width, height,
                                          InxGridGeometry::pageStart(nav.selected, getVisibleAppCount()),
                                          getVisibleAppCount());
 }
@@ -222,19 +222,16 @@ bool AppsMenuActivity::handleCustomInput() {
 
 void AppsMenuActivity::drawIconGrid(const Rect& rect, const int visibleCount, const bool showSelection) const {
   const int start = InxGridGeometry::pageStart(nav.selected, visibleCount);
-  const int cellWidth = rect.width / InxGridGeometry::columns;
-  const int cellHeight = rect.height / InxGridGeometry::rows;
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-  constexpr int iconScale = 2;
-  constexpr int iconSize = InxAppIcons::size * iconScale;
 
   for (int slot = 0; slot < InxGridGeometry::itemsPerPage && start + slot < visibleCount; ++slot) {
     const int visibleIndex = start + slot;
     const int appIndex = getAppIndexForVisibleIndex(visibleIndex);
     if (appIndex < 0) continue;
-    const int column = slot % InxGridGeometry::columns;
-    const int row = slot / InxGridGeometry::columns;
-    const Rect cell{rect.x + column * cellWidth + 4, rect.y + row * cellHeight + 4, cellWidth - 8, cellHeight - 8};
+    const auto bounds = InxGridGeometry::cellBounds(slot, rect.width, rect.height);
+    const Rect cell{rect.x + bounds.x, rect.y + bounds.y, bounds.width, bounds.height};
+    const int iconScale = cell.height >= InxAppIcons::size * 2 + lineHeight + 18 ? 2 : 1;
+    const int iconSize = InxAppIcons::size * iconScale;
     const bool isSelected = showSelection && visibleIndex == nav.selected;
     if (isSelected) renderer.fillRect(cell.x, cell.y, cell.width, cell.height, true);
 
@@ -264,12 +261,14 @@ void AppsMenuActivity::buildScreen(UiScreen& screen) {
   const bool showSelection = showMainTabContentSelection();
 
   if (visibleCount == 0) {
-    UITheme::drawCenteredWrappedText(renderer, Rect{0, listY, sw, listH}, UI_12_FONT_ID, tr(STR_NO_APPS_ENABLED), 2);
+    UITheme::drawCenteredWrappedText(renderer, Rect{mainContent.x, listY, mainContent.width, listH}, UI_12_FONT_ID,
+                                     tr(STR_NO_APPS_ENABLED), 2);
   } else if (usesIconLayout()) {
-    drawIconGrid(Rect{0, listY, sw, listH}, visibleCount, showSelection);
+    drawIconGrid(Rect{mainContent.x, listY, mainContent.width, listH}, visibleCount, showSelection);
   } else {
     screen.setContentMarginFromScreen(
-        fui::Insets{static_cast<int16_t>(listY), 0, static_cast<int16_t>(sh - listY - listH), 0});
+        fui::Insets{static_cast<int16_t>(listY), static_cast<int16_t>(sw - mainContent.x - mainContent.width),
+                    static_cast<int16_t>(sh - listY - listH), static_cast<int16_t>(mainContent.x)});
     fui::ListProps props;
     props.items = rowItems.data();
     props.count = static_cast<uint16_t>(rowItems.size());

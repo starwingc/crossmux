@@ -105,7 +105,7 @@ InxRecentLayout InxRecentActivity::layout() const {
 Rect InxRecentActivity::contentRect() const {
   Rect content = mainTabContentRect();
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int topInset = mainTabsAtBottom() ? metrics.batteryBarHeight : 0;
+  const int topInset = mainTabsAtBottom() && !hasMainTabStatusBar() ? metrics.batteryBarHeight : 0;
   content.y += topInset + metrics.verticalSpacing;
   content.height -= topInset + metrics.verticalSpacing * 2;
   if (!mainTabsAtBottom()) {
@@ -592,11 +592,13 @@ void InxRecentActivity::render(RenderLock&&) {
   const auto labels = mainTabButtonLabels(SETTINGS.standbyShortcutEnabled ? tr(STR_STANDBY_TITLE) : "", tr(STR_OPEN),
                                           books && books->size() > 1, false);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  const int batteryY = mainTabsAtBottom() ? metrics.topPadding + 5 : renderer.getScreenHeight() - 30;
-  GUI.drawBatteryRight(renderer,
-                       Rect{renderer.getScreenWidth() - kHomeBatteryRightMargin - kHomeBatteryWidth, batteryY,
-                            kHomeBatteryWidth, kHomeBatteryHeight},
-                       SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS);
+  if (!hasMainTabStatusBar()) {
+    const int batteryY = mainTabsAtBottom() ? metrics.topPadding + 5 : renderer.getScreenHeight() - 30;
+    GUI.drawBatteryRight(renderer,
+                         Rect{renderer.getScreenWidth() - kHomeBatteryRightMargin - kHomeBatteryWidth, batteryY,
+                              kHomeBatteryWidth, kHomeBatteryHeight},
+                         SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS);
+  }
   if (prepareNextMissingCover()) return;
   renderer.displayBuffer();
 }

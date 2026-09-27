@@ -155,8 +155,14 @@ action**.
   non-`None` `MainTab` participate. Left/Right and tab touches are consumed
   before the page sees them, while reader and feature subpages remain outside
   the top-level loop. `SETTINGS.inxTabPosition` places this shared bar at the
-  top or bottom; touch devices default to the bottom, and the INX home battery
-  stays on the opposite edge.
+  top or bottom; touch devices default to the bottom. In bottom mode, touch
+  devices share a 44 px top status bar across all five main tabs, with the clock
+  on the left and battery on the right. It uses the configured clock format,
+  time zone and battery percentage visibility, and updates only when the page
+  renders. Tapping the status bar opens the control center. Its drawing and hit
+  region share the main-tab layout, which also reserves viewable margins and
+  at least 6 px between the status bar, content and navigation. Other modes
+  retain the INX home battery on the opposite edge from the tabs.
 * `GUI.drawProgressBar()` returns the first free Y coordinate after the bar and
   optional percentage line. Callers place following text from that value rather
   than reproducing the theme's font or spacing calculations.

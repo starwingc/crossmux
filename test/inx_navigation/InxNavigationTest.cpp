@@ -48,11 +48,11 @@ TEST(InxNavigation, WrapsAcrossFiveTabs) {
   EXPECT_EQ(MainTabs::adjacent(MainTab::Recent, -1), MainTab::Statistics);
   EXPECT_EQ(MainTabs::adjacent(MainTab::Statistics, 1), MainTab::Recent);
   EXPECT_EQ(MainTabs::adjacent(MainTab::Library, 1), MainTab::Apps);
-  EXPECT_EQ(MainTabs::fromX(0, 500), MainTab::Recent);
-  EXPECT_EQ(MainTabs::fromX(100, 500), MainTab::Library);
-  EXPECT_EQ(MainTabs::fromX(200, 500), MainTab::Apps);
-  EXPECT_EQ(MainTabs::fromX(300, 500), MainTab::Settings);
-  EXPECT_EQ(MainTabs::fromX(499, 500), MainTab::Statistics);
+  EXPECT_EQ(MainTabs::fromX(50, 500), MainTab::Recent);
+  EXPECT_EQ(MainTabs::fromX(150, 500), MainTab::Library);
+  EXPECT_EQ(MainTabs::fromX(250, 500), MainTab::Apps);
+  EXPECT_EQ(MainTabs::fromX(350, 500), MainTab::Settings);
+  EXPECT_EQ(MainTabs::fromX(450, 500), MainTab::Statistics);
   EXPECT_EQ(MainTabs::fromX(500, 500), MainTab::None);
   EXPECT_EQ(MainTabs::backTarget(MainTab::Apps), MainTab::Recent);
   EXPECT_EQ(MainTabs::backTarget(MainTab::Recent), MainTab::None);
@@ -77,6 +77,46 @@ TEST(InxNavigation, PlacesTabsWithoutOverlappingContent) {
   EXPECT_EQ(touchBottom.tabTop, 435);
   EXPECT_EQ(touchBottom.contentTop, 5);
   EXPECT_EQ(touchBottom.contentBottom, 435);
+}
+
+TEST(InxNavigation, SharesTabDrawingAndHitBoundsIncludingGaps) {
+  for (const int width : {480, 552, 768, 800, 527}) {
+    for (size_t i = 0; i < MainTabs::values.size(); ++i) {
+      const auto bounds = MainTabs::tabBounds(static_cast<int>(i), width);
+      EXPECT_EQ(MainTabs::fromX(bounds.left, width), MainTabs::values[i]);
+      EXPECT_EQ(MainTabs::fromX(bounds.right - 1, width), MainTabs::values[i]);
+      EXPECT_EQ(MainTabs::fromX(bounds.left - 1, width), MainTab::None);
+      EXPECT_EQ(MainTabs::fromX(bounds.right, width), MainTab::None);
+      if (i > 0) {
+        EXPECT_GE(bounds.left - MainTabs::tabBounds(static_cast<int>(i) - 1, width).right, 6);
+      }
+    }
+  }
+}
+
+TEST(InxNavigation, ShowsStatusOnlyOnTouchBottomMainTabs) {
+  for (const bool mainTabs : {false, true}) {
+    for (const bool touch : {false, true}) {
+      for (const bool bottom : {false, true}) {
+        EXPECT_EQ(MainTabs::showsStatusBar(mainTabs, touch, bottom), mainTabs && touch && bottom);
+      }
+    }
+  }
+}
+
+TEST(InxNavigation, ReservesStatusAndContentGapsInsideSafeArea) {
+  for (const int height : {480, 552, 768, 800}) {
+    constexpr int safeTop = 8;
+    constexpr int safeBottom = 10;
+    constexpr int hints = 40;
+    const auto layout = MainTabs::layout(height - safeBottom, safeTop, 66, hints, true, MainTabs::statusBarHeight);
+    EXPECT_EQ(layout.statusTop, safeTop);
+    EXPECT_EQ(layout.statusHeight, 44);
+    EXPECT_EQ(layout.contentTop - (layout.statusTop + layout.statusHeight), 6);
+    EXPECT_EQ(layout.tabTop - layout.contentBottom, 6);
+    EXPECT_EQ(layout.tabTop + 66 + hints, height - safeBottom);
+    EXPECT_GT(layout.contentBottom, layout.contentTop);
+  }
 }
 
 TEST(InxNavigation, ScrollsListPagesWithoutMovingSelection) {
@@ -204,11 +244,22 @@ TEST(InxNavigation, ValidatesItemLayoutsAndGridBounds) {
   EXPECT_EQ(InxGridGeometry::pageStart(12, 13), 12);
   EXPECT_EQ(InxGridGeometry::pageStart(14, 15), 12);
 
-  EXPECT_EQ(InxGridGeometry::indexFromPoint(0, 0, 300, 400, 12, 15), 12);
-  EXPECT_EQ(InxGridGeometry::indexFromPoint(299, 99, 300, 400, 12, 15), 14);
+  EXPECT_EQ(InxGridGeometry::indexFromPoint(4, 4, 300, 400, 12, 15), 12);
+  EXPECT_EQ(InxGridGeometry::indexFromPoint(295, 95, 300, 400, 12, 15), 14);
+  EXPECT_EQ(InxGridGeometry::indexFromPoint(99, 50, 300, 400, 0, 12), -1);
+  EXPECT_EQ(InxGridGeometry::indexFromPoint(50, 99, 300, 400, 0, 12), -1);
   EXPECT_EQ(InxGridGeometry::indexFromPoint(0, 100, 300, 400, 12, 15), -1);
   EXPECT_EQ(InxGridGeometry::indexFromPoint(-1, 0, 300, 400, 0, 12), -1);
   EXPECT_EQ(InxGridGeometry::indexFromPoint(300, 0, 300, 400, 0, 12), -1);
+
+  for (int slot = 0; slot < InxGridGeometry::itemsPerPage; ++slot) {
+    const auto cell = InxGridGeometry::cellBounds(slot, 527, 377);
+    EXPECT_EQ(InxGridGeometry::indexFromPoint(cell.x, cell.y, 527, 377, 0, 12), slot);
+    EXPECT_EQ(InxGridGeometry::indexFromPoint(cell.x + cell.width - 1, cell.y + cell.height - 1, 527, 377, 0, 12),
+              slot);
+    EXPECT_EQ(InxGridGeometry::indexFromPoint(cell.x - 1, cell.y, 527, 377, 0, 12), -1);
+    EXPECT_EQ(InxGridGeometry::indexFromPoint(cell.x, cell.y + cell.height, 527, 377, 0, 12), -1);
+  }
 }
 
 TEST(InxNavigation, MapsAccordionRowsWithoutFlatteningSettings) {

@@ -12,9 +12,13 @@ struct MainTabLayout {
   int tabTop;
   int contentTop;
   int contentBottom;
+  int statusTop;
+  int statusHeight;
 };
 
 namespace MainTabs {
+inline constexpr int controlGap = 6;
+inline constexpr int statusBarHeight = 44;
 inline constexpr std::array<MainTab, 5> values = {MainTab::Recent, MainTab::Library, MainTab::Apps, MainTab::Settings,
                                                   MainTab::Statistics};
 
@@ -32,19 +36,38 @@ constexpr MainTab adjacent(const MainTab tab, const int direction) {
   return values[(index + (direction < 0 ? count - 1 : 1)) % count];
 }
 
+struct TabBounds {
+  int left;
+  int right;
+};
+
+constexpr TabBounds tabBounds(const int index, const int width) {
+  const int count = static_cast<int>(values.size());
+  return {width * index / count + controlGap / 2, width * (index + 1) / count - controlGap / 2};
+}
+
 constexpr MainTab fromX(const int x, const int width) {
   if (x < 0 || width <= 0 || x >= width) return MainTab::None;
-  const int index = x * static_cast<int>(values.size()) / width;
-  return values[index];
+  for (size_t i = 0; i < values.size(); ++i) {
+    const auto bounds = tabBounds(static_cast<int>(i), width);
+    if (x >= bounds.left && x < bounds.right) return values[i];
+  }
+  return MainTab::None;
 }
 
 constexpr MainTab backTarget(const MainTab tab) { return tab == MainTab::Recent ? MainTab::None : MainTab::Recent; }
 
+constexpr bool showsStatusBar(const bool usesMainTabs, const bool hasTouch, const bool tabsAtBottom) {
+  return usesMainTabs && hasTouch && tabsAtBottom;
+}
+
 constexpr MainTabLayout layout(const int screenHeight, const int topPadding, const int tabHeight, const int bottomInset,
-                               const bool tabsAtBottom) {
+                               const bool tabsAtBottom, const int statusHeight = 0) {
   const int usableBottom = screenHeight - bottomInset;
-  return tabsAtBottom ? MainTabLayout{usableBottom - tabHeight, topPadding, usableBottom - tabHeight}
-                      : MainTabLayout{topPadding, topPadding + tabHeight, usableBottom};
+  const int gap = statusHeight > 0 ? controlGap : 0;
+  return tabsAtBottom ? MainTabLayout{usableBottom - tabHeight, topPadding + statusHeight + gap,
+                                      usableBottom - tabHeight - gap, topPadding, statusHeight}
+                      : MainTabLayout{topPadding, topPadding + tabHeight, usableBottom, topPadding, 0};
 }
 
 constexpr int contentEdgeIndex(const MainTabContentEdge edge, const int count) {

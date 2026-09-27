@@ -98,8 +98,11 @@ class Activity {
                                                  bool showTabDirections = true) const;
   bool showMainTabContentSelection() const;
   bool mainTabsAtBottom() const;
+  bool hasMainTabStatusBar() const;
+  Rect mainTabSafeArea() const;
   MainTabLayout mainTabLayout() const;
   Rect mainTabBarRect() const;
+  Rect mainTabStatusBarRect() const;
   Rect mainTabContentRect() const;
   void drawPageHeader(const Rect& rect, const char* title, const char* subtitle = nullptr) const;
 
