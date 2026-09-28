@@ -100,8 +100,8 @@ values, and keep conditional-app IDs outside their `#ifdef`. New bits default to
 Chess, Minesweeper, 2048, Ugly Avatar, Buddy, Sokoban, Pixel Switch, and Woodfish.
 Existing masks are preserved except for the one-time Buddy migration from catalog version 0.
 The menu, launcher, and App Visibility settings all read this same table; no `switch` or `buildItems()` is needed.
-The visibility mask is 32-bit. `Calculator = 15` and `Woodfish = 16` are stable;
-IDs 17 through 31 remain available.
+The visibility mask is 32-bit. `Calculator = 15`, `Woodfish = 16`, and `Ao3 = 17` are stable;
+IDs 18 through 31 remain available.
 
 ### 4. Add the i18n key and icon
 

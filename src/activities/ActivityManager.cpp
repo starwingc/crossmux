@@ -15,6 +15,7 @@
 #include "apps/2048/Game2048Activity.h"
 #include "apps/AppsMenuActivity.h"
 #include "apps/airpage/AirPageActivity.h"
+#include "apps/ao3/Ao3Activity.h"
 #include "apps/avatar/UglyAvatarActivity.h"
 #include "apps/buddy/BuddyActivity.h"
 #include "apps/calculator/CalculatorActivity.h"
@@ -516,6 +517,8 @@ void ActivityManager::goToWoodfish() { replaceActivityWith<WoodfishActivity>(); 
 void ActivityManager::goToGame2048() { replaceActivityWith<Game2048Activity>(); }
 
 void ActivityManager::goToAirPage() { replaceActivityWith<AirPageActivity>(); }
+
+void ActivityManager::goToAo3() { replaceActivityWith<Ao3Activity>(); }
 
 void ActivityManager::goToBuddy() { replaceActivityWith<BuddyActivity>(); }
 

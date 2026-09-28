@@ -12,6 +12,7 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <SdCardFontCache.h>
+#include <Utf8.h>
 #include <esp_system.h>
 
 #include <algorithm>
@@ -32,6 +33,7 @@
 #include "EpubReaderFootnotesActivity.h"
 #include "EpubReaderPercentSelectionActivity.h"
 #include "EpubReaderUtils.h"
+#include "HighlightListActivity.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncActivity.h"
 #include "MappedInputManager.h"
@@ -403,6 +405,11 @@ bool EpubReaderActivity::loadBook() {
 }
 
 void EpubReaderActivity::openReaderMenu() {
+  if (suppressMenuReopen) {
+    suppressMenuReopen = false;
+    requestUpdate();
+    return;
+  }
   pendingManualTurn = 0;
   if (usesToolbarMenu()) {
     // Reached from a child activity's result handler (footnotes, bookmarks,
@@ -451,7 +458,7 @@ void EpubReaderActivity::openReaderMenu() {
         }
       },
       epub->getTitle(), currentPage, totalPages, bookProgressPercent, SETTINGS.orientation, pageTurnRate,
-      !currentPageFootnotes.empty(), !cachedBookmarks.empty());
+      !currentPageFootnotes.empty(), !cachedBookmarks.empty(), !highlights.empty());
 }
 
 ReaderRenderSpec EpubReaderActivity::effectiveRenderSpec(const uint16_t width, const uint16_t height) const {
@@ -549,6 +556,257 @@ void EpubReaderActivity::openDictionaryWordSelect() {
       std::move(page), orientedMarginLeft, orientedMarginTop);
 }
 
+namespace {
+uint32_t countUtf8Codepoints(const char* text) {
+  uint32_t count = 0;
+  for (const unsigned char* p = reinterpret_cast<const unsigned char*>(text); *p; ++p) {
+    if ((*p & 0xC0) != 0x80) ++count;
+  }
+  return count;
+}
+
+bool startsWithCjk(const char* text) {
+  const auto* p = reinterpret_cast<const unsigned char*>(text);
+  return *p >= 0x80 && utf8IsCjkBreakable(utf8NextCodepoint(&p));
+}
+
+bool isBlankToken(const char* text) {
+  for (; *text; ++text) {
+    if (*text != ' ') return false;
+  }
+  return true;
+}
+}  // namespace
+
+std::vector<HighlightUnit> EpubReaderActivity::buildHighlightUnits(const Page& page, const int fontId,
+                                                                   const int marginLeft, const int marginTop) const {
+  std::vector<HighlightUnit> units;
+  std::vector<EpdFontFamily::Style> styles;
+  units.reserve(192);
+  styles.reserve(192);
+  // Same approach as the dictionary picker: collect first, then load the
+  // page's glyph advances once before measuring.
+  std::string pageText;
+  pageText.reserve(2048);
+  uint8_t styleMask = 0;
+  const int ascender = renderer.getFontAscenderSize(fontId);
+  uint16_t row = 0;
+  for (const auto& element : page.elements) {
+    if (element->getTag() != TAG_PageLine) continue;
+    const auto* line = static_cast<const PageLine*>(element.get());
+    const auto& block = line->getBlock();
+    if (!block || !block->valid()) continue;
+    const int rubyShift = block->getRubyShift(ascender);
+    bool rowHasUnits = false;
+    for (uint16_t i = 0; i < block->wordCount(); i++) {
+      const char* text = block->wordText(i);
+      if (*text == '\0' || isBlankToken(text)) continue;
+      HighlightUnit unit;
+      unit.x = static_cast<int16_t>(marginLeft + line->xPos + block->wordXpos(i));
+      unit.y = static_cast<int16_t>(marginTop + line->yPos + rubyShift);
+      unit.height = static_cast<int16_t>(ascender + 4);
+      unit.row = row;
+      unit.start = block->wordVisibleOffset(i);
+      unit.end = unit.start + countUtf8Codepoints(text);
+      unit.text = text;
+      units.push_back(std::move(unit));
+      styles.push_back(block->wordStyle(i));
+      pageText.append(text);
+      pageText.push_back(' ');
+      styleMask |= static_cast<uint8_t>(1u << (static_cast<uint8_t>(styles.back()) & 0x03));
+      rowHasUnits = true;
+    }
+    if (rowHasUnits) row++;
+  }
+  renderer.ensureSdCardFontReady(fontId, pageText.c_str(), styleMask == 0 ? 0x01 : styleMask);
+  for (size_t i = 0; i < units.size(); ++i) {
+    auto& unit = units[i];
+    unit.width = static_cast<int16_t>(renderer.getTextAdvanceX(fontId, unit.text.c_str(), styles[i]));
+    if (i > 0) {
+      const auto& prev = units[i - 1];
+      // Latin words are separated by a visible gap, or by a line wrap; CJK
+      // text never takes a space.
+      const bool latin = !startsWithCjk(unit.text.c_str()) && !startsWithCjk(prev.text.c_str());
+      unit.spaceBefore = latin && (prev.row != unit.row || unit.x - (prev.x + prev.width) >= 2);
+    }
+  }
+  return units;
+}
+
+void EpubReaderActivity::drawPageHighlights(const Page& page, const int fontId, const int marginLeft,
+                                            const int marginTop) const {
+  // Only this spine's ranges; most pages have none, so bail out before any
+  // per-word work.
+  std::vector<std::pair<uint32_t, uint32_t>> ranges;
+  for (const auto& h : highlights) {
+    if (h.spine == currentSpineIndex) ranges.emplace_back(h.start, h.end);
+  }
+  if (ranges.empty()) return;
+  const auto covered = [&ranges](const uint32_t offset) {
+    for (const auto& r : ranges) {
+      if (offset >= r.first && offset < r.second) return true;
+    }
+    return false;
+  };
+
+  const int ascender = renderer.getFontAscenderSize(fontId);
+  for (const auto& element : page.elements) {
+    if (element->getTag() != TAG_PageLine) continue;
+    const auto* line = static_cast<const PageLine*>(element.get());
+    const auto& block = line->getBlock();
+    if (!block || !block->valid()) continue;
+    const int y = marginTop + line->yPos + block->getRubyShift(ascender);
+    // Join consecutive covered words on the line into one continuous rule.
+    int runLeft = -1;
+    int runRight = -1;
+    for (uint16_t i = 0; i < block->wordCount(); i++) {
+      const char* text = block->wordText(i);
+      const bool blank = *text == '\0' || isBlankToken(text);
+      if (!blank && covered(block->wordVisibleOffset(i))) {
+        const int left = marginLeft + line->xPos + block->wordXpos(i);
+        const int right = left + renderer.getTextAdvanceX(fontId, text, block->wordStyle(i));
+        if (runLeft < 0) runLeft = left;
+        runRight = std::max(runRight, right);
+      } else if (!blank && runLeft >= 0) {
+        HighlightSelectActivity::drawSavedUnderline(renderer, runLeft, y, runRight - runLeft, ascender + 4);
+        runLeft = runRight = -1;
+      }
+    }
+    if (runLeft >= 0) {
+      HighlightSelectActivity::drawSavedUnderline(renderer, runLeft, y, runRight - runLeft, ascender + 4);
+    }
+  }
+}
+
+bool EpubReaderActivity::runTouchZoneAction(const touchZones::Action action) {
+  using A = touchZones::Action;
+  using MA = EpubReaderMenuActivity::MenuAction;
+  if (action == A::None) return false;
+  READING_STATS.noteActivity();
+  switch (action) {
+    case A::ToggleBookmark:
+      addBookmark();
+      showBookmarkMessage = true;
+      bookmarkMessageTime = millis();
+      requestUpdate();
+      return true;
+    case A::Highlight:
+      openHighlightSelect(-1, -1);
+      return true;
+    case A::Dictionary:
+      openDictionaryWordSelect();
+      return true;
+    case A::NightMode:
+      SETTINGS.screenInverted = SETTINGS.screenInverted == 0 ? 1 : 0;
+      SETTINGS.saveToFile();
+      requestUpdate();
+      return true;
+    case A::FrontlightToggle: {
+      const bool lightOn = !Frontlight.isOn();
+      Frontlight.setOn(lightOn);
+      SETTINGS.frontlightOn = lightOn ? 1 : 0;
+      SETTINGS.saveToFile();
+      return true;
+    }
+    case A::Bookmarks:
+    case A::Chapters:
+    case A::Highlights:
+    case A::GoToPercent:
+    case A::Screenshot:
+    case A::GoHome: {
+      static constexpr struct {
+        A zone;
+        MA menu;
+      } kMap[] = {{A::Bookmarks, MA::BOOKMARKS},   {A::Chapters, MA::SELECT_CHAPTER},
+                  {A::Highlights, MA::HIGHLIGHTS}, {A::GoToPercent, MA::GO_TO_PERCENT},
+                  {A::Screenshot, MA::SCREENSHOT}, {A::GoHome, MA::GO_HOME}};
+      for (const auto& entry : kMap) {
+        if (entry.zone != action) continue;
+        suppressMenuReopen = true;
+        onReaderMenuConfirm(entry.menu);
+        requestUpdate();
+        return true;
+      }
+      return false;
+    }
+    default:
+      return false;
+  }
+}
+
+void EpubReaderActivity::openHighlightSelect(const int touchX, const int touchY) {
+  if (!section || !epub) return;
+  std::unique_ptr<Page> loaded = section->loadPage(section->currentPage);
+  if (!loaded) return;
+
+  int marginTop, marginRight, marginBottom, marginLeft;
+  renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
+  marginTop += SETTINGS.screenMargin;
+  marginLeft += SETTINGS.screenMargin;
+  const int fontId = SETTINGS.getReaderFontId();
+
+  auto units = buildHighlightUnits(*loaded, fontId, marginLeft, marginTop);
+  int startUnit = -1;
+  if (touchX >= 0) {
+    constexpr int SLOP = 4;
+    for (int i = 0; i < static_cast<int>(units.size()); ++i) {
+      const auto& u = units[i];
+      if (touchX >= u.x - SLOP && touchX < u.x + u.width + SLOP && touchY >= u.y - SLOP &&
+          touchY < u.y + u.height + SLOP) {
+        startUnit = i;
+        break;
+      }
+    }
+    if (startUnit < 0) {
+      // Long-press on a margin or image: nothing to select.
+      LOG_INF("ERS", "Long-press hit no word (%u words on page)", static_cast<unsigned>(units.size()));
+      return;
+    }
+  }
+
+  std::vector<std::pair<uint32_t, uint32_t>> ranges;
+  for (const auto& h : highlights) {
+    if (h.spine == currentSpineIndex) ranges.emplace_back(h.start, h.end);
+  }
+
+  // The selection screen redraws this page (plus its marks) on every move.
+  std::shared_ptr<Page> page(std::move(loaded));
+  auto drawPage = [this, page, fontId, marginLeft, marginTop] {
+    GfxRenderer::SyntheticBoldScope syntheticBold(renderer, SETTINGS.fakeBold);
+    auto scope = renderer.getFontCacheManager()->createPrewarmScope();
+    page->render(renderer, fontId, marginLeft, marginTop);
+    scope.endScanAndPrewarm();
+    page->render(renderer, fontId, marginLeft, marginTop);
+    drawPageHighlights(*page, fontId, marginLeft, marginTop);
+  };
+
+  startActivityForResultWith<HighlightSelectActivity>(
+      [this](const ActivityResult& result) {
+        READING_STATS.resumeSession();
+        const auto* selection = std::get_if<HighlightResult>(&result.data);
+        if (!result.isCancelled && selection && epub) {
+          if (selection->remove) {
+            highlights.erase(std::remove_if(highlights.begin(), highlights.end(),
+                                            [&](const HighlightEntry& h) {
+                                              return h.spine == currentSpineIndex && h.start == selection->start;
+                                            }),
+                             highlights.end());
+          } else {
+            HighlightEntry entry;
+            entry.spine = static_cast<uint16_t>(currentSpineIndex);
+            entry.start = selection->start;
+            entry.end = selection->end;
+            entry.text = selection->text;
+            entry.percentage = ProgressMapper::toSavedProgress(epub, getCurrentPosition()).percentage;
+            if (!HighlightFile::add(highlights, std::move(entry))) LOG_ERR("ERS", "Highlight list full");
+          }
+          if (!HighlightFile::save(epub->getPath(), highlights)) LOG_ERR("ERS", "Failed to save highlights");
+        }
+        requestUpdate();
+      },
+      std::move(units), std::move(drawPage), startUnit, std::move(ranges));
+}
+
 #ifdef ENABLE_CHINESE_VERSION
 bool EpubReaderActivity::maybeOfferCompleteChineseFont() {
   if (SETTINGS.sdFontFamilyName[0] != '\0') {
@@ -576,6 +834,7 @@ bool EpubReaderActivity::maybeOfferCompleteChineseFont() {
 #endif
 
 void EpubReaderActivity::loop() {
+  suppressMenuReopen = false;
   if (!epub) {
     finish();
     return;
@@ -720,6 +979,20 @@ void EpubReaderActivity::loop() {
   }
   const bool endOfBookMenuOpen = endOfBookMenuActive();
 
+  // Touch long-press on the text: underline from that word (or remove the
+  // underline under it).
+  // Pages already laid out stay usable while a chapter build continues in the
+  // background, so a build in progress does not block selection.
+  if (!atEndOfBook && !endOfBookMenuOpen && section && mappedInput.hasTouch()) {
+    int pressX = 0;
+    int pressY = 0;
+    if (mappedInput.wasScreenLongPress(pressX, pressY)) {
+      LOG_INF("ERS", "Long-press at %d,%d", pressX, pressY);
+      openHighlightSelect(pressX, pressY);
+      return;
+    }
+  }
+
   const unsigned long confirmHoldMs = confirmLongPressThreshold();
   // wasLongPressed() suppresses the release that follows it, so leave it unpolled while
   // the end-of-book menu owns Confirm -- otherwise the menu never sees that release.
@@ -805,6 +1078,11 @@ void EpubReaderActivity::loop() {
         return;
       }
     }
+  }
+
+  // Custom tap zones: reader shortcuts other than page turns and the menu.
+  if (!atEndOfBook && runTouchZoneAction(ReaderUtils::customTouchAction(renderer, mappedInput))) {
+    return;
   }
 
   if (confirmReleased || ReaderUtils::isTouchMenuGesture(renderer, mappedInput)) {
@@ -1185,6 +1463,15 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
     }
     case EpubReaderMenuActivity::MenuAction::BOOKMARKS: {
       startActivityForResultWith<EpubReaderBookmarksActivity>(progressChangeResultHandler, epub, epub->getPath());
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::HIGHLIGHT: {
+      openHighlightSelect(-1, -1);
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::HIGHLIGHTS: {
+      // The handler reloads bookmarks and highlights, so deletions show at once.
+      startActivityForResultWith<HighlightListActivity>(progressChangeResultHandler, epub, epub->getPath());
       break;
     }
     case EpubReaderMenuActivity::MenuAction::TOGGLE_BOOKMARK: {
@@ -1997,6 +2284,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const auto renderPageWithGuideLines = [&] {
     renderPage();
     drawGuideLines();
+    drawPageHighlights(*page, fontId, orientedMarginLeft, orientedMarginTop);
   };
   auto renderGrayscalePass = [&]() {
     if (needsTextGrayscale) {
@@ -2204,6 +2492,15 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     }
   } else {
     if (needsAnyGrayscale) {
+      // The B/W page is already on the panel and readable. When the reader has
+      // queued another turn meanwhile, the ~0.7 s gray pass would only delay
+      // it: skip it and let the next page render now. The last page reached
+      // still gets anti-aliased, since no turn is queued behind it.
+      if (!pageHasImages && pendingManualTurn.load() != 0) {
+        LOG_DBG("ERS", "Page render: AA skipped for queued turn: prewarm=%lums bw_render=%lums display=%lums",
+                tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender);
+        return;
+      }
       if (!renderer.storeBwBuffer()) {
         LOG_ERR("ERS", "Failed to store BW buffer for grayscale render; skipping grayscale this page");
         return;
@@ -2216,8 +2513,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       renderer.copyGrayscaleLsbBuffers();
       const auto tGrayLsb = millis();
 
-      // Abort early if a push/pop is pending (e.g. user opened menu)
-      if (activityManager.isSwitchPending()) {
+      // Abort early if a push/pop is pending (e.g. user opened menu) or the
+      // reader queued another turn (text-only pages; images need their grays).
+      if (activityManager.isSwitchPending() || (!pageHasImages && pendingManualTurn.load() != 0)) {
         renderer.setRenderMode(GfxRenderer::BW);
         renderer.restoreBwBuffer();
         return;
@@ -2230,7 +2528,8 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       const auto tGrayMsb = millis();
 
       // Abort before the expensive grayscale display if a push/pop is pending
-      if (activityManager.isSwitchPending()) {
+      // or another turn is queued.
+      if (activityManager.isSwitchPending() || (!pageHasImages && pendingManualTurn.load() != 0)) {
         renderer.setRenderMode(GfxRenderer::BW);
         renderer.restoreBwBuffer();
         return;
@@ -2964,7 +3263,8 @@ void EpubReaderActivity::handleFontPreloadPrompt() {
 // two entries that have their own tool (chapters -> Contents, text -> Text).
 void EpubReaderActivity::buildMoreActions() {
   using MA = EpubReaderMenuActivity::MenuAction;
-  EpubReaderMenuActivity::buildMenuItems(moreItems, !currentPageFootnotes.empty(), !cachedBookmarks.empty());
+  EpubReaderMenuActivity::buildMenuItems(moreItems, !currentPageFootnotes.empty(), !cachedBookmarks.empty(),
+                                         !highlights.empty());
   moreItems.erase(std::remove_if(moreItems.begin(), moreItems.end(),
                                  [](const auto& item) {
                                    return item.action == MA::SELECT_CHAPTER || item.action == MA::TEXT_SETTINGS;
@@ -3133,10 +3433,12 @@ void EpubReaderActivity::loadCachedBookmarks() {
   }
   if (!epub) {
     currentPageBookmarked = false;
+    highlights.clear();
     return;
   }
 
   BookmarkFile::load(epub->getPath(), cachedBookmarks);
+  HighlightFile::load(epub->getPath(), highlights);
   updateBookmarkFlag();
 }
 

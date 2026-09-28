@@ -12,11 +12,13 @@
 
 #include "BookmarkEntry.h"
 #include "EpubReaderMenuActivity.h"
+#include "HighlightSelectActivity.h"
 #include "ProgressMapper.h"
 #include "ReaderActivity.h"
 #include "ReaderFontPreview.h"
 #include "ReaderToolbarUi.h"
 #include "components/OptionPopup.h"
+#include "util/HighlightFile.h"
 
 class EpubReaderActivity final : public ReaderActivity {
   std::shared_ptr<Epub> epub;
@@ -33,7 +35,9 @@ class EpubReaderActivity final : public ReaderActivity {
   unsigned long lastPageTurnTime = 0UL;
   unsigned long pageTurnDuration = 0UL;
   uint8_t pageTurnRate = 15;
-  int8_t pendingManualTurn = 0;
+  // A page turn requested while a render holds the lock. Atomic: the render
+  // task reads it to cut the anti-aliasing pass short (see renderContents).
+  std::atomic<int8_t> pendingManualTurn{0};
   bool pendingPercentJump = false;
   float pendingSpineProgress = 0.0f;
   bool pendingScreenshot = false;
@@ -52,6 +56,8 @@ class EpubReaderActivity final : public ReaderActivity {
   unsigned long lastRenderCompleteMs = 0;
   bool bookmarkRemoved = false;
   std::vector<BookmarkEntry> cachedBookmarks;
+  // Underlined passages of this book (all spines), reloaded with the bookmarks.
+  std::vector<HighlightEntry> highlights;
   bool recentsEntryRemoved = false;
   unsigned long bookmarkMessageTime = 0UL;
   bool pendingReadFolderMove = false;
@@ -178,6 +184,20 @@ class EpubReaderActivity final : public ReaderActivity {
   std::string moreRowValue(int row) const;
   void activateMoreRow(int row);
   void openDictionaryWordSelect();
+  // Text selection for underlining. touchX < 0 starts the button flow (pick
+  // start, then end); otherwise the long-pressed word is the start, or the
+  // underline under it is offered for removal.
+  void openHighlightSelect(int touchX, int touchY);
+  // Runs a custom tap-zone action (TOUCH_READER_CUSTOM); false when the action
+  // is not a reader shortcut.
+  bool runTouchZoneAction(touchZones::Action action);
+  // Set while a screen opened from a tap zone returns: its "cancelled" path
+  // must not reopen the reader menu the user never opened. Cleared on the next
+  // loop() pass, which only runs once that screen is gone.
+  bool suppressMenuReopen = false;
+  std::vector<HighlightUnit> buildHighlightUnits(const Page& page, int fontId, int marginLeft, int marginTop) const;
+  // Underlines the saved highlights of the current spine on `page`.
+  void drawPageHighlights(const Page& page, int fontId, int marginLeft, int marginTop) const;
   bool launchKOReaderSync();
 #ifdef ENABLE_CHINESE_VERSION
   bool launchWeReadSync();

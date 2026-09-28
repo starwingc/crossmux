@@ -14,6 +14,7 @@
 #include "SdCardFontSystem.h"
 #include "TxtReaderActivity.h"
 #include "XtcReaderActivity.h"
+#include "util/BookFontMemory.h"
 
 ReaderActivity::ReaderActivity(const char* name, GfxRenderer& renderer, MappedInputManager& mappedInput,
                                std::string bookPath, const bool allowFastInitialRefresh)
@@ -55,6 +56,8 @@ void ReaderActivity::onEnter() {
     return;
   }
 
+  // Each book reopens with the font it was last read with.
+  BookFontMemory::applyFor(bookPath);
   sdFontSystem.ensureLoaded(renderer);
   applyInitialOrientation();
 
@@ -71,6 +74,8 @@ void ReaderActivity::onEnter() {
 
 void ReaderActivity::onExit() {
   Activity::onExit();
+
+  BookFontMemory::rememberFor(bookPath);
 
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
   APP_STATE.readerActivityLoadCount = 0;

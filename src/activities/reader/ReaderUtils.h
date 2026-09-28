@@ -99,6 +99,16 @@ inline TouchPageTurn detectTouchPageTurn(GfxRenderer& renderer, const MappedInpu
     return result;
   }
 
+  if (SETTINGS.touchReaderControls == CrossPointSettings::TOUCH_READER_CUSTOM) {
+    const int zone = touchZones::zoneAt(x, y, renderer.getScreenWidth(), renderer.getScreenHeight());
+    const auto action =
+        zone >= 0 ? static_cast<touchZones::Action>(SETTINGS.touchZoneActions[zone]) : touchZones::Action::None;
+    result.prev = action == touchZones::Action::PrevPage;
+    result.next = action == touchZones::Action::NextPage;
+    result.heldMs = gpio.lastTouchHeldMs();
+    return result;
+  }
+
   const int16_t width = static_cast<int16_t>(renderer.getScreenWidth());
   const int16_t height = static_cast<int16_t>(renderer.getScreenHeight());
   // Outer thirds only: the center column contains the reader-menu tap target
@@ -128,9 +138,15 @@ inline TouchPageTurn detectTouchPageTurn(GfxRenderer& renderer, const MappedInpu
 // menu stays reachable through the key's long-press function.
 inline bool isTouchMenuTap(const GfxRenderer& renderer, const MappedInputManager& input) {
   if (!input.hasTouch()) return false;
-  if (SETTINGS.showReaderMenu != CrossPointSettings::READER_MENU_TAP) return false;
   int x = 0;
   int y = 0;
+  if (SETTINGS.touchReaderControls == CrossPointSettings::TOUCH_READER_CUSTOM) {
+    // Custom zones decide where the menu lives (showReaderMenu does not apply).
+    if (!input.wasScreenTapped(x, y)) return false;
+    const int zone = touchZones::zoneAt(x, y, renderer.getScreenWidth(), renderer.getScreenHeight());
+    return zone >= 0 && static_cast<touchZones::Action>(SETTINGS.touchZoneActions[zone]) == touchZones::Action::Menu;
+  }
+  if (SETTINGS.showReaderMenu != CrossPointSettings::READER_MENU_TAP) return false;
   if (!input.wasScreenTapped(x, y)) return false;
   const int width = renderer.getScreenWidth();
   const int height = renderer.getScreenHeight();
@@ -153,6 +169,29 @@ inline bool isTouchMenuGesture(const GfxRenderer& renderer, const MappedInputMan
     return true;
   }
   return isTouchMenuTap(renderer, input);
+}
+
+// The action of the custom zone tapped this frame, for actions other than page
+// turns and the menu (those go through detectTouchPageTurn/isTouchMenuTap).
+// None when custom zones are off or nothing was tapped.
+inline touchZones::Action customTouchAction(const GfxRenderer& renderer, const MappedInputManager& input) {
+  if (!input.hasTouch() || SETTINGS.touchReaderControls != CrossPointSettings::TOUCH_READER_CUSTOM) {
+    return touchZones::Action::None;
+  }
+  int x = 0;
+  int y = 0;
+  if (!input.wasScreenTapped(x, y)) return touchZones::Action::None;
+  const int zone = touchZones::zoneAt(x, y, renderer.getScreenWidth(), renderer.getScreenHeight());
+  if (zone < 0) return touchZones::Action::None;
+  const auto action = static_cast<touchZones::Action>(SETTINGS.touchZoneActions[zone]);
+  switch (action) {
+    case touchZones::Action::PrevPage:
+    case touchZones::Action::NextPage:
+    case touchZones::Action::Menu:
+      return touchZones::Action::None;
+    default:
+      return action;
+  }
 }
 
 // Grayscale anti-aliasing pass. Renders content twice (LSB + MSB) to build

@@ -26,7 +26,10 @@ constexpr fui::ActionId ACTION_WARMTH = 2;
 constexpr fui::ActionId ACTION_TOGGLE = 3;
 constexpr fui::ActionId ACTION_BRIGHTNESS_STEP = 4;
 constexpr fui::ActionId ACTION_WARMTH_STEP = 5;
-constexpr fui::ActionId ACTION_TILE = 6;  // value = tile index
+// value = tile index, or kPresetValueBase + preset index for the light presets
+// (UiAppHost's app holds six handlers, all taken, so presets share this one).
+constexpr fui::ActionId ACTION_TILE = 6;
+constexpr int16_t kPresetValueBase = 100;
 
 // iOS-style geometry. The panel is a card hanging from the top of the screen:
 // a grabber, full-width slider pills, then a 2-column tile grid. The chrome
@@ -36,6 +39,10 @@ constexpr int16_t kPanelSideMargin = 16;
 constexpr int16_t kGrabberHeight = 5;     // fui::SheetProps default, mirrored here
 constexpr int16_t kSliderRowHeight = 56;  // the pill itself (finger-sized)
 constexpr int16_t kTileHeight = 84;
+constexpr int16_t kPresetHeight = 64;
+constexpr int kPresetCols = CrossPointSettings::LIGHT_PRESET_COUNT;
+constexpr StrId kPresetNames[CrossPointSettings::LIGHT_PRESET_COUNT] = {
+    StrId::STR_LIGHT_PRESET_NIGHT, StrId::STR_LIGHT_PRESET_SOFT, StrId::STR_LIGHT_PRESET_BRIGHT};
 constexpr int16_t kTileGap = 16;
 constexpr int kTileCols = 2;
 // One percent per press, on the -/+ buttons and on the physical Left/Right keys
@@ -149,7 +156,42 @@ void FrontlightPanelActivity::onWarmthStepEvent(const fui::ActionEvent& event, v
 }
 
 void FrontlightPanelActivity::onTileEvent(const fui::ActionEvent& event, void* user) {
+  if (event.value >= kPresetValueBase) {
+    onPresetEvent(event, user);
+    return;
+  }
   static_cast<FrontlightPanelActivity*>(user)->runTile(event.value);
+}
+
+void FrontlightPanelActivity::onPresetEvent(const fui::ActionEvent& event, void* user) {
+  auto* self = static_cast<FrontlightPanelActivity*>(user);
+  const int idx = event.value - kPresetValueBase;
+  if (idx < 0 || idx >= CrossPointSettings::LIGHT_PRESET_COUNT) return;
+  if (event.longPress) {
+    self->savePreset(idx);
+  } else {
+    self->applyPreset(idx);
+  }
+}
+
+void FrontlightPanelActivity::applyPreset(const int idx) {
+  brightness = std::max(MIN_BRIGHTNESS, SETTINGS.lightPresets[idx][0]);
+  warmth = SETTINGS.lightPresets[idx][1];
+  Frontlight.setBrightness(brightness);
+  if (Frontlight.hasColorTemperature()) Frontlight.setWarmth(warmth);
+  if (!lightOn) {
+    lightOn = true;
+    lightOnChanged = true;
+    Frontlight.setOn(true);
+  }
+  requestUpdate();
+}
+
+void FrontlightPanelActivity::savePreset(const int idx) {
+  SETTINGS.lightPresets[idx][0] = brightness;
+  SETTINGS.lightPresets[idx][1] = warmth;
+  SETTINGS.saveToFile();
+  requestUpdate();  // the tile label shows the stored levels
 }
 
 void FrontlightPanelActivity::runTile(const int idx) {
@@ -236,7 +278,11 @@ bool FrontlightPanelActivity::handleHomeGesture() {
 }
 
 void FrontlightPanelActivity::loop() {
-  const auto touch = routeTouch(mappedInput, false, /*routeHeld=*/true);
+  int heldX = 0;
+  int heldY = 0;
+  const bool overPresets =
+      presetTop >= 0 && mappedInput.isScreenTouchHeld(heldX, heldY) && heldY >= presetTop && heldY < presetBottom;
+  const auto touch = routeTouch(mappedInput, /*withLongPress=*/overPresets, /*routeHeld=*/true);
   if (touch.routed) {
     if (app.invalidated()) requestUpdate();
     if (touch) {
@@ -294,6 +340,11 @@ int FrontlightPanelActivity::computePanelBottom() const {
       y += lineHeight + tokens.spaceMd + kSliderRowHeight + 2 * tokens.spaceMd;  // warmth
     }
     y += tokens.spaceSm;
+    if (mappedInput.hasTouch()) {
+      // Screen::tileGrid() reserves the grid plus a spaceSm gap; then spaceLg of air.
+      y += fui::tileGridHeight(CrossPointSettings::LIGHT_PRESET_COUNT, kPresetCols, kPresetHeight, kTileGap) +
+           tokens.spaceSm + tokens.spaceLg;
+    }
   }
   // Tiles are touch targets, so a buttons-only board gets no grid and the
   // sheet is exactly the frontlight controls.
@@ -381,6 +432,33 @@ void FrontlightPanelActivity::buildPanelScreen(UiScreen& screen) {
       addSliderRow(screen, tr(STR_WARMTH), warmth, ACTION_WARMTH, ACTION_WARMTH_STEP, /*showToggle=*/false);
     }
     screen.spacer(theme.spaceSm);
+
+    // Presets: "Night 10%" etc.; the one matching the live levels is filled.
+    if (mappedInput.hasTouch()) {
+      for (int i = 0; i < CrossPointSettings::LIGHT_PRESET_COUNT; ++i) {
+        snprintf(presetLabels[i], sizeof(presetLabels[i]), "%s %u%%", I18N.get(kPresetNames[i]),
+                 static_cast<unsigned>(SETTINGS.lightPresets[i][0]));
+        const bool active = lightOn && brightness == SETTINGS.lightPresets[i][0] &&
+                            (!Frontlight.hasColorTemperature() || warmth == SETTINGS.lightPresets[i][1]);
+        presetItems[i].label = presetLabels[i];
+        presetItems[i].value = static_cast<int16_t>(kPresetValueBase + i);
+        presetItems[i].state = active ? fui::StateChecked : fui::StateNormal;
+      }
+      presetProps.items = presetItems;
+      presetProps.count = CrossPointSettings::LIGHT_PRESET_COUNT;
+      presetProps.columns = kPresetCols;
+      presetProps.action = ACTION_TILE;
+      presetProps.tileHeight = kPresetHeight;
+      presetProps.gap = kTileGap;
+      presetProps.inputMask = fui::InputTouch | fui::InputLongPress;
+      const int16_t bandHeight =
+          fui::tileGridHeight(CrossPointSettings::LIGHT_PRESET_COUNT, kPresetCols, kPresetHeight, kTileGap);
+      const fui::Rect band = screen.body();
+      presetTop = band.y;
+      presetBottom = band.y + bandHeight;
+      screen.tileGrid(presetProps);
+      screen.spacer(theme.spaceLg);
+    }
   }
 
   // Quick-setting tiles. Two columns of finger-sized cards; a tile whose

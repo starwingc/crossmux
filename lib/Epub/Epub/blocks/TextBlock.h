@@ -23,6 +23,7 @@
 // unaligned multi-byte access):
 //   uint16_t textOff[wordCount]        byte offset of word i's text in text[]
 //   int16_t  xpos[wordCount]
+//   uint16_t offDelta[wordCount]       word i's visible-text offset minus offsetBase
 //   uint16_t focusSuffixX[wordCount]   present only when focusPresent
 //   uint8_t  styles[wordCount]
 //   uint8_t  focusBoundary[wordCount]  present only when focusPresent
@@ -38,6 +39,12 @@
 // word start to the regular suffix. Both arrays are omitted from the arena
 // entirely when no word on the line has a split (zero per-word RAM cost when
 // focus reading is disabled).
+//
+// Visible-text offsets: offsetBase + offDelta[i] is the codepoint offset of
+// word i within its spine item, the same coordinate as Page::visibleTextOffset.
+// It survives re-pagination (font, margins, orientation), so reader
+// highlights anchor on it. Deltas saturate at UINT16_MAX; a line never spans
+// that many codepoints in practice.
 class TextBlock final : public Block {
  public:
   struct LinkSpan {
@@ -51,6 +58,7 @@ class TextBlock final : public Block {
   BlockStyle blockStyle;
   uint16_t numWords = 0;
   uint16_t textBytes = 0;  // total size of the text region, including NULs
+  uint32_t offsetBase = 0;
   bool focusPresent = false;
   bool isValid = true;
   // The ONLY allocation: makeUniqueNoThrow, so OOM yields an invalid block
@@ -60,6 +68,7 @@ class TextBlock final : public Block {
   // 16-bit bases sit at even offsets, so direct dereference is alignment-safe.
   const uint16_t* textOffArr = nullptr;
   const int16_t* xposArr = nullptr;
+  const uint16_t* offDeltaArr = nullptr;
   const uint16_t* focusSuffixXArr = nullptr;  // null when !focusPresent
   const uint8_t* stylesArr = nullptr;
   const uint8_t* focusBoundaryArr = nullptr;  // null when !focusPresent
@@ -77,10 +86,12 @@ class TextBlock final : public Block {
   // Flatten-on-construct: copies the layout-time vectors into the arena; the
   // vectors die with the caller. On arena OOM the block is empty and valid()
   // is false -- callers must check and fail the line instead of using it.
+  // wordOffsets is empty (all offsets 0) or sized like words.
   explicit TextBlock(const std::vector<std::string>& words, const std::vector<int16_t>& wordXpos,
                      const std::vector<EpdFontFamily::Style>& wordStyles, const std::vector<uint8_t>& focusBoundary,
                      const std::vector<uint16_t>& focusSuffixX, const BlockStyle& blockStyle = BlockStyle(),
-                     std::vector<std::string> rubyTexts = {}, std::vector<LinkSpan> linkSpans = {});
+                     std::vector<std::string> rubyTexts = {}, std::vector<LinkSpan> linkSpans = {},
+                     const std::vector<uint32_t>& wordOffsets = {});
   ~TextBlock() override = default;
   TextBlock(const TextBlock&) = delete;
   TextBlock& operator=(const TextBlock&) = delete;
@@ -97,6 +108,8 @@ class TextBlock final : public Block {
     return end - textOffArr[i] - 1;  // exclude the NUL
   }
   int16_t wordXpos(const uint16_t i) const { return xposArr[i]; }
+  // Codepoint offset of word i within its spine item (see class comment).
+  uint32_t wordVisibleOffset(const uint16_t i) const { return offsetBase + offDeltaArr[i]; }
   EpdFontFamily::Style wordStyle(const uint16_t i) const { return static_cast<EpdFontFamily::Style>(stylesArr[i]); }
   uint8_t focusBoundary(const uint16_t i) const { return focusPresent ? focusBoundaryArr[i] : 0; }
   uint16_t focusSuffixX(const uint16_t i) const { return focusPresent ? focusSuffixXArr[i] : 0; }

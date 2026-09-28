@@ -76,9 +76,20 @@ struct FilePathResult {
   std::string path;
 };
 
-using ResultVariant = std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult,
-                                   IntervalResult, ChapterRangeResult, PageResult, TxtOffsetResult,
-                                   ProgressChangeResult, NetworkModeResult, FootnoteResult, FilePathResult>;
+// Reader text selection: underline [start, end) or remove the highlight that
+// starts at `start`. Offsets are in the reader's anchor space (EPUB visible
+// codepoints within the current spine, TXT source-file bytes).
+struct HighlightResult {
+  bool remove = false;
+  uint32_t start = 0;
+  uint32_t end = 0;
+  std::string text;  // selected text, for the highlight list excerpt
+};
+
+using ResultVariant =
+    std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult, IntervalResult,
+                 ChapterRangeResult, PageResult, TxtOffsetResult, ProgressChangeResult, NetworkModeResult,
+                 FootnoteResult, FilePathResult, HighlightResult>;
 
 struct ActivityResult {
   bool isCancelled = false;

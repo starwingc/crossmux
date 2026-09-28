@@ -127,6 +127,7 @@ class ActivityManager {
   void goToCalculator();
   void goToWoodfish();
   void goToAirPage();
+  void goToAo3();
   void goToBuddy();
   void goToStandby();
   void goToGame2048();

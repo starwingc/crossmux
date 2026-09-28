@@ -1586,6 +1586,14 @@ bool ParsedText::extractLine(const size_t lineIndex, const size_t lineBreak, con
     return willReorder ? reorderedFocusBoundaryScratch[idx] : wordFocusBoundary[lastBreakAt + idx];
   };
 
+  // Per-word visible-text offsets, in the same (visual) order as lineWords;
+  // reader highlights anchor on them.
+  std::vector<uint32_t> lineOffsets;
+  lineOffsets.reserve(lineWordCount);
+  for (size_t i = 0; i < lineWordCount; i++) {
+    lineOffsets.push_back(visibleOffsetAt(lastBreakAt + (willReorder ? visualOrderScratch[i] : i)));
+  }
+
   std::vector<TextBlock::LinkSpan> lineLinks;
   std::vector<uint8_t> lineLinkIdsSeen;
   for (size_t i = 0; collectTouchLinks && i < lineWordCount; i++) {
@@ -1632,7 +1640,7 @@ bool ParsedText::extractLine(const size_t lineIndex, const size_t lineBreak, con
     // TextBlock flattens the vectors into its arena; they stay owned here and die at return.
     auto block = makeUniqueNoThrow<TextBlock>(lineWords, lineXPos, lineWordStyles, std::vector<uint8_t>{},
                                               std::vector<uint16_t>{}, blockStyle, std::move(lineRubyTexts),
-                                              std::move(lineLinks));
+                                              std::move(lineLinks), lineOffsets);
     if (!block || !block->valid()) {
       LOG_ERR("PTX", "OOM: TextBlock arena allocation failed");
       return false;
@@ -1654,7 +1662,7 @@ bool ParsedText::extractLine(const size_t lineIndex, const size_t lineBreak, con
   }
 
   auto block = makeUniqueNoThrow<TextBlock>(lineWords, lineXPos, lineWordStyles, outBoundaries, outSuffixX, blockStyle,
-                                            std::move(lineRubyTexts), std::move(lineLinks));
+                                            std::move(lineRubyTexts), std::move(lineLinks), lineOffsets);
   if (!block || !block->valid()) {
     LOG_ERR("PTX", "OOM: TextBlock arena allocation failed");
     return false;

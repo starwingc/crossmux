@@ -11,15 +11,23 @@ int TxtReaderChapterSelectionActivity::getPageItems() const {
   return UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, false);
 }
 
-std::string TxtReaderChapterSelectionActivity::chapterTitle(const int index) {
+std::string TxtReaderChapterSelectionActivity::chapterTitle(const int row) {
+  if (showHighlights && row == 0) return tr(STR_HIGHLIGHTS);
+  const int index = row - extraRows();
   txt_chapter_index::Record chapter;
   if (index < 0 || !txt.readChapter(chapterFile, chapterCount, static_cast<uint32_t>(index), chapter)) return {};
   return chapter.title;
 }
 
 void TxtReaderChapterSelectionActivity::selectChapter() {
+  if (showHighlights && selectorIndex == 0) {
+    setResult(MenuResult{});
+    finish();
+    return;
+  }
+  const int index = selectorIndex - extraRows();
   txt_chapter_index::Record chapter;
-  if (selectorIndex < 0 || !txt.readChapter(chapterFile, chapterCount, static_cast<uint32_t>(selectorIndex), chapter)) {
+  if (index < 0 || !txt.readChapter(chapterFile, chapterCount, static_cast<uint32_t>(index), chapter)) {
     return;
   }
   setResult(TxtOffsetResult{chapter.sourceOffset});
@@ -35,7 +43,7 @@ void TxtReaderChapterSelectionActivity::onEnter() {
   } else if (chapterCount > 0) {
     uint32_t currentChapter = 0;
     if (txt.findChapterForOffset(chapterFile, chapterCount, currentOffset, currentChapter)) {
-      selectorIndex = static_cast<int>(currentChapter);
+      selectorIndex = static_cast<int>(currentChapter) + extraRows();
     }
   }
   requestUpdate();
@@ -55,7 +63,7 @@ void TxtReaderChapterSelectionActivity::loop() {
     return;
   }
 
-  const int totalItems = static_cast<int>(chapterCount);
+  const int totalItems = totalRows();
   if (totalItems == 0) return;
   const int pageItems = getPageItems();
 
@@ -119,10 +127,10 @@ void TxtReaderChapterSelectionActivity::render(RenderLock&&) {
   const int contentTop = screen.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int contentHeight = screen.height - contentTop - metrics.verticalSpacing;
   const Rect content{screen.x, contentTop, screen.width, contentHeight};
-  if (chapterCount == 0) {
+  if (totalRows() == 0) {
     UITheme::drawCenteredWrappedText(renderer, content, UI_10_FONT_ID, tr(STR_NO_CHAPTERS), 2);
   } else {
-    GUI.drawList(renderer, content, static_cast<int>(chapterCount), selectorIndex,
+    GUI.drawList(renderer, content, totalRows(), selectorIndex,
                  [this](const int index) { return chapterTitle(index); });
   }
 

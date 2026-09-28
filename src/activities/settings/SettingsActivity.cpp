@@ -38,6 +38,7 @@
 #include "SilentRestart.h"
 #include "StatusBarSettingsActivity.h"
 #include "TextSettingsActivity.h"
+#include "TouchZoneEditorActivity.h"
 #include "activities/home/FileBrowserActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/ConfirmationActivity.h"
@@ -327,6 +328,14 @@ void SettingsActivity::rebuildSettingsLists() {
   }
 
   // Append device-only ACTION items
+  if (BoardConfig::hasTouch()) {
+    // Right after the touch-mode row it customizes.
+    const auto touchMode =
+        std::find_if(controlsSettings.begin(), controlsSettings.end(),
+                     [](const SettingInfo& setting) { return setting.nameId == StrId::STR_TOUCH_READER_CONTROLS; });
+    controlsSettings.insert(touchMode == controlsSettings.end() ? controlsSettings.end() : touchMode + 1,
+                            SettingInfo::Action(StrId::STR_EDIT_TOUCH_ZONES, SettingAction::TouchZones));
+  }
   if (!BoardConfig::hasTouch()) {
     controlsSettings.insert(controlsSettings.begin(),
                             SettingInfo::Action(StrId::STR_REMAP_FRONT_BUTTONS, SettingAction::RemapFrontButtons));
@@ -775,6 +784,9 @@ void SettingsActivity::toggleCurrentSetting() {
         break;
       case SettingAction::CustomiseStatusBar:
         startActivityForResultWith<StatusBarSettingsActivity>(resultHandler);
+        break;
+      case SettingAction::TouchZones:
+        startActivityForResultWith<TouchZoneEditorActivity>(resultHandler);
         break;
       case SettingAction::ReadingStatsSettings:
         startActivityForResultWith<ReadingStatsSettingsActivity>(resultHandler);

@@ -3,6 +3,7 @@
 #include <BidiUtils.h>
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
+#include <HalFrontlight.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Memory.h>
@@ -19,6 +20,7 @@
 #include "AchievementsStore.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "HighlightListActivity.h"
 #include "MappedInputManager.h"
 #include "ProgressFile.h"
 #include "ReaderUtils.h"
@@ -81,6 +83,8 @@ bool TxtReaderActivity::loadBook() {
     return false;
   }
 
+  HighlightFile::load(bookPath, highlights);
+
   const auto fileName = bookPath.substr(bookPath.rfind('/') + 1);
   READING_STATS.beginSession(bookPath, fileName, "", "", 0, "", 0);
   return true;
@@ -110,13 +114,54 @@ void TxtReaderActivity::onExit() {
 bool TxtReaderActivity::handleFormatInput() {
   READING_STATS.tickActiveSession();
 
+  // Touch long-press on the text: underline from that word (or remove the
+  // underline under it).
+  if (initialized && !endOfBook && mappedInput.hasTouch()) {
+    int pressX = 0;
+    int pressY = 0;
+    if (mappedInput.wasScreenLongPress(pressX, pressY)) {
+      LOG_INF("TRS", "Long-press at %d,%d", pressX, pressY);
+      READING_STATS.noteActivity();
+      openHighlightSelect(pressX, pressY);
+      return true;
+    }
+  }
+
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
       ReaderUtils::isTouchMenuGesture(renderer, mappedInput)) {
     READING_STATS.noteActivity();
     openChapterSelection();
     return true;
   }
-  return false;
+
+  // Custom tap zones: the TXT reader supports the shortcuts that exist here.
+  switch (ReaderUtils::customTouchAction(renderer, mappedInput)) {
+    case touchZones::Action::Chapters:
+      READING_STATS.noteActivity();
+      openChapterSelection();
+      return true;
+    case touchZones::Action::Highlights:
+      READING_STATS.noteActivity();
+      openHighlightList();
+      return true;
+    case touchZones::Action::NightMode:
+      SETTINGS.screenInverted = SETTINGS.screenInverted == 0 ? 1 : 0;
+      SETTINGS.saveToFile();
+      requestUpdate();
+      return true;
+    case touchZones::Action::FrontlightToggle: {
+      const bool lightOn = !Frontlight.isOn();
+      Frontlight.setOn(lightOn);
+      SETTINGS.frontlightOn = lightOn ? 1 : 0;
+      SETTINGS.saveToFile();
+      return true;
+    }
+    case touchZones::Action::GoHome:
+      onGoHome();
+      return true;
+    default:
+      return false;
+  }
 }
 
 bool TxtReaderActivity::pageTurn(const bool isForward) {
@@ -216,7 +261,8 @@ void TxtReaderActivity::openChapterSelection() {
 
   const uint32_t currentOffset = static_cast<uint32_t>(getCurrentSourceOffset());
   // The selector outlives this call and therefore cannot live on the stack.
-  auto selector = makeUniqueNoThrow<TxtReaderChapterSelectionActivity>(renderer, mappedInput, *txt, currentOffset);
+  auto selector = makeUniqueNoThrow<TxtReaderChapterSelectionActivity>(renderer, mappedInput, *txt, currentOffset,
+                                                                       !highlights.empty());
   if (!selector) {
     LOG_ERR("TRS", "OOM: TxtReaderChapterSelectionActivity (%u bytes)",
             static_cast<unsigned>(sizeof(TxtReaderChapterSelectionActivity)));
@@ -225,6 +271,10 @@ void TxtReaderActivity::openChapterSelection() {
   }
   startActivityForResult(std::move(selector), [this](const ActivityResult& result) {
     READING_STATS.resumeSession();
+    if (!result.isCancelled && std::holds_alternative<MenuResult>(result.data)) {
+      openHighlightList();  // the list's row at the top of the chapters
+      return;
+    }
     const auto* selected = std::get_if<TxtOffsetResult>(&result.data);
     if (result.isCancelled || !selected) return;
 
@@ -363,6 +413,22 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<TxtLine>& ou
     renderer.ensureSdCardFontReady(cachedFontId, reinterpret_cast<const char*>(buffer), /*styleMask=*/0x01);
   }
 
+  // File offset of a UTF-8 buffer position. GBK maps back through the
+  // transcoded prefix; scanning resumes where the last call stopped, so a page
+  // costs one pass over the buffer (positions only grow within a page).
+  size_t scannedUtf8 = 0;
+  size_t scannedSource = 0;
+  const auto sourceAt = [&](const size_t utf8Pos) -> uint32_t {
+    if (textEncoding != txt_encoding::Encoding::Gbk) return static_cast<uint32_t>(offset + utf8Pos);
+    if (utf8Pos < scannedUtf8) {
+      scannedUtf8 = 0;
+      scannedSource = 0;
+    }
+    scannedSource += txt_encoding::gbkSourceLength(buffer + scannedUtf8, utf8Pos - scannedUtf8);
+    scannedUtf8 = utf8Pos;
+    return static_cast<uint32_t>(offset + scannedSource);
+  };
+
   // Parse lines from buffer
   size_t pos = 0;
   const bool compactParagraphs = SETTINGS.extraParagraphSpacing == 0;
@@ -409,6 +475,7 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<TxtLine>& ou
 
     if (displayLen == 0) {
       outLines.emplace_back();
+      outLines.back().sourceOffset = sourceAt(pos);
     } else {
       char* const line = reinterpret_cast<char*>(buffer + pos);
       const char lineTerminator = line[displayLen];
@@ -493,6 +560,7 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<TxtLine>& ou
 
         outLines.emplace_back();
         outLines.back().text.assign(line + lineBytePos, breakPos - lineBytePos);
+        outLines.back().sourceOffset = sourceAt(pos + lineBytePos);
         outLines.back().indented = indentFirstVisualLine;
         indentFirstVisualLine = false;
         lineBytePos = breakPos;
@@ -676,59 +744,59 @@ void TxtReaderActivity::renderBook() {
   saveProgress();
 }
 
-void TxtReaderActivity::renderPage() {
-  const auto t0 = millis();
+int TxtReaderActivity::lineStartX(const TxtLine& line) const {
+  int x = cachedOrientedMarginLeft + (line.indented ? paragraphIndentWidth : 0);
+  const bool lineIsRtl = BidiUtils::startsWithRtl(line.text.c_str(), BidiUtils::RTL_PARAGRAPH_PROBE_DEPTH);
+  uint8_t effectiveAlignment = cachedParagraphAlignment;
+  if (lineIsRtl &&
+      (effectiveAlignment == CrossPointSettings::LEFT_ALIGN || effectiveAlignment == CrossPointSettings::JUSTIFIED)) {
+    effectiveAlignment = CrossPointSettings::RIGHT_ALIGN;
+  }
+  switch (effectiveAlignment) {
+    case CrossPointSettings::CENTER_ALIGN:
+    case CrossPointSettings::RIGHT_ALIGN: {
+      const int textWidth = renderer.getTextAdvanceX(cachedFontId, line.text.c_str(), EpdFontFamily::REGULAR);
+      x = effectiveAlignment == CrossPointSettings::CENTER_ALIGN
+              ? cachedOrientedMarginLeft + (viewportWidth - textWidth) / 2
+              : cachedOrientedMarginLeft + viewportWidth - textWidth;
+      break;
+    }
+    case CrossPointSettings::LEFT_ALIGN:
+    case CrossPointSettings::JUSTIFIED:  // plain text: justified is left-aligned
+    default:
+      break;
+  }
+  return x;
+}
+
+void TxtReaderActivity::drawLines(const std::vector<TxtLine>& lines) const {
   const int lineHeight = renderer.getLineHeight(cachedFontId);
   const int contentWidth = viewportWidth;
   const int contentBottom = renderer.getScreenHeight() - cachedOrientedMarginBottom;
   auto* fcm = renderer.getFontCacheManager();
-
-  // Render text lines with alignment
-  auto renderLines = [&]() {
-    int y = cachedOrientedMarginTop;
-    for (const auto& line : currentPageLines) {
-      if (!line.text.empty()) {
-        int x = cachedOrientedMarginLeft + (line.indented ? paragraphIndentWidth : 0);
-        const bool lineIsRtl = BidiUtils::startsWithRtl(line.text.c_str(), BidiUtils::RTL_PARAGRAPH_PROBE_DEPTH);
-        uint8_t effectiveAlignment = cachedParagraphAlignment;
-        if (lineIsRtl && (effectiveAlignment == CrossPointSettings::LEFT_ALIGN ||
-                          effectiveAlignment == CrossPointSettings::JUSTIFIED)) {
-          effectiveAlignment = CrossPointSettings::RIGHT_ALIGN;
-        }
-        const int textWidth = renderer.getTextAdvanceX(cachedFontId, line.text.c_str(), EpdFontFamily::REGULAR);
-
-        // Apply text alignment
-        switch (effectiveAlignment) {
-          case CrossPointSettings::LEFT_ALIGN:
-          default:
-            // x already set to left margin
-            break;
-          case CrossPointSettings::CENTER_ALIGN: {
-            x = cachedOrientedMarginLeft + (contentWidth - textWidth) / 2;
-            break;
-          }
-          case CrossPointSettings::RIGHT_ALIGN: {
-            x = cachedOrientedMarginLeft + contentWidth - textWidth;
-            break;
-          }
-          case CrossPointSettings::JUSTIFIED:
-            // For plain text, justified is treated as left-aligned
-            // (true justification would require word spacing adjustments)
-            break;
-        }
-
-        renderer.drawText(cachedFontId, x, y, line.text.c_str());
-        const int guideY = y + lineHeight + SETTINGS.readingGuideLineOffset;
-        if (SETTINGS.readingGuideLineEnabled && !fcm->isScanning() &&
-            readingGuideLine::fitsVertically(SETTINGS.readingGuideLineStyle, guideY, cachedOrientedMarginTop,
-                                             contentBottom)) {
-          readingGuideLine::draw(renderer, cachedOrientedMarginLeft, guideY,
-                                 cachedOrientedMarginLeft + contentWidth - 1, SETTINGS.readingGuideLineStyle);
-        }
+  int y = cachedOrientedMarginTop;
+  for (const auto& line : lines) {
+    if (!line.text.empty()) {
+      const int x = lineStartX(line);
+      renderer.drawText(cachedFontId, x, y, line.text.c_str());
+      if (!fcm->isScanning()) drawLineHighlights(line, x, y);
+      const int guideY = y + lineHeight + SETTINGS.readingGuideLineOffset;
+      if (SETTINGS.readingGuideLineEnabled && !fcm->isScanning() &&
+          readingGuideLine::fitsVertically(SETTINGS.readingGuideLineStyle, guideY, cachedOrientedMarginTop,
+                                           contentBottom)) {
+        readingGuideLine::draw(renderer, cachedOrientedMarginLeft, guideY, cachedOrientedMarginLeft + contentWidth - 1,
+                               SETTINGS.readingGuideLineStyle);
       }
-      y += lineHeight;
     }
-  };
+    y += lineHeight;
+  }
+}
+
+void TxtReaderActivity::renderPage() {
+  const auto t0 = millis();
+  auto* fcm = renderer.getFontCacheManager();
+
+  auto renderLines = [this]() { drawLines(currentPageLines); };
 
   // Font prewarm: scan pass accumulates text, then prewarm, then real render
   auto scope = fcm->createPrewarmScope();
@@ -785,6 +853,207 @@ void TxtReaderActivity::renderPage() {
   LOG_DBG("TRS", "Page render: prewarm=%lums bw_render=%lums display=%lums aa=%lums total=%lums", tPrewarm - t0,
           tBwRender - tPrewarm, tDisplay - tBwRender, tEnd - tDisplay, tEnd - t0);
   // scope destructor clears font cache via FontCacheManager
+}
+
+uint32_t TxtReaderActivity::sourceBytes(const char* utf8, const size_t length) const {
+  return static_cast<uint32_t>(textEncoding == txt_encoding::Encoding::Gbk
+                                   ? txt_encoding::gbkSourceLength(reinterpret_cast<const uint8_t*>(utf8), length)
+                                   : length);
+}
+
+namespace {
+// Pixel advance of the first `bytes` bytes of `text`.
+int prefixAdvance(const GfxRenderer& renderer, const int fontId, const std::string& text, const size_t bytes) {
+  if (bytes == 0) return 0;
+  const std::string prefix = text.substr(0, bytes);
+  return renderer.getTextAdvanceX(fontId, prefix.c_str(), EpdFontFamily::REGULAR);
+}
+
+bool isTxtSpace(const uint32_t cp) { return cp == ' ' || cp == '\t' || cp == 0x3000; }
+
+uint32_t firstCodepoint(const std::string& text) {
+  const auto* p = reinterpret_cast<const unsigned char*>(text.c_str());
+  return utf8NextCodepoint(&p);
+}
+}  // namespace
+
+void TxtReaderActivity::drawLineHighlights(const TxtLine& line, const int x, const int y) const {
+  if (highlights.empty() || line.text.empty()) return;
+  const uint32_t lineStart = line.sourceOffset;
+  const uint32_t lineEnd = lineStart + sourceBytes(line.text.data(), line.text.size());
+  bool any = false;
+  for (const auto& h : highlights) {
+    if (h.start < lineEnd && h.end > lineStart) {
+      any = true;
+      break;
+    }
+  }
+  // Prefix measurement assumes left-to-right drawing.
+  if (!any || BidiUtils::startsWithRtl(line.text.c_str(), BidiUtils::RTL_PARAGRAPH_PROBE_DEPTH)) return;
+
+  const int ascender = renderer.getFontAscenderSize(cachedFontId);
+  const auto* begin = reinterpret_cast<const unsigned char*>(line.text.data());
+  const auto* p = begin;
+  const auto* end = begin + line.text.size();
+  uint32_t source = lineStart;
+  size_t runStart = std::string::npos;
+  size_t runEnd = 0;
+  const auto flush = [&] {
+    if (runStart == std::string::npos) return;
+    const int left = x + prefixAdvance(renderer, cachedFontId, line.text, runStart);
+    const int right = x + prefixAdvance(renderer, cachedFontId, line.text, runEnd);
+    HighlightSelectActivity::drawSavedUnderline(renderer, left, y, right - left, ascender + 4);
+    runStart = std::string::npos;
+  };
+  while (p < end) {
+    const size_t at = static_cast<size_t>(p - begin);
+    const uint32_t cp = utf8NextCodepoint(&p);
+    if (p <= begin + at) p = begin + at + 1;  // malformed byte: step over it
+    const size_t next = static_cast<size_t>(p - begin);
+    const bool covered = HighlightFile::find(highlights, 0, source) >= 0;
+    source += sourceBytes(line.text.data() + at, next - at);
+    if (covered) {
+      if (runStart == std::string::npos) runStart = at;
+      runEnd = next;
+    } else if (!isTxtSpace(cp)) {
+      flush();
+    }
+  }
+  flush();
+}
+
+std::vector<HighlightUnit> TxtReaderActivity::buildHighlightUnits() const {
+  std::vector<HighlightUnit> units;
+  units.reserve(192);
+  std::string pageText;
+  for (const auto& line : currentPageLines) pageText += line.text;
+  if (renderer.isSdCardFont(cachedFontId)) renderer.ensureSdCardFontReady(cachedFontId, pageText.c_str(), 0x01);
+
+  const int lineHeight = renderer.getLineHeight(cachedFontId);
+  const int ascender = renderer.getFontAscenderSize(cachedFontId);
+  int y = cachedOrientedMarginTop;
+  uint16_t row = 0;
+  for (const auto& line : currentPageLines) {
+    const std::string& text = line.text;
+    if (!text.empty() && !BidiUtils::startsWithRtl(text.c_str(), BidiUtils::RTL_PARAGRAPH_PROBE_DEPTH)) {
+      const int x0 = lineStartX(line);
+      const auto* begin = reinterpret_cast<const unsigned char*>(text.data());
+      const auto* end = begin + text.size();
+      const auto* p = begin;
+      // A wrapped line starts after a consumed space (Latin) or mid-run (CJK).
+      bool pendingSpace = !units.empty();
+      bool rowHasUnits = false;
+      while (p < end) {
+        const size_t start = static_cast<size_t>(p - begin);
+        const uint32_t cp = utf8NextCodepoint(&p);
+        if (p <= begin + start) p = begin + start + 1;
+        if (isTxtSpace(cp)) {
+          pendingSpace = true;
+          continue;
+        }
+        const bool cjk = utf8IsCjkBreakable(cp);
+        if (!cjk) {
+          // A Latin word runs to the next space or CJK character.
+          while (p < end) {
+            const auto* q = p;
+            const uint32_t nextCp = utf8NextCodepoint(&q);
+            if (q <= p || isTxtSpace(nextCp) || utf8IsCjkBreakable(nextCp)) break;
+            p = q;
+          }
+        }
+        const size_t stop = static_cast<size_t>(p - begin);
+        HighlightUnit unit;
+        unit.x = static_cast<int16_t>(x0 + prefixAdvance(renderer, cachedFontId, text, start));
+        unit.y = static_cast<int16_t>(y);
+        unit.text = text.substr(start, stop - start);
+        unit.width =
+            static_cast<int16_t>(renderer.getTextAdvanceX(cachedFontId, unit.text.c_str(), EpdFontFamily::REGULAR));
+        unit.height = static_cast<int16_t>(ascender + 4);
+        unit.row = row;
+        unit.start = line.sourceOffset + sourceBytes(text.data(), start);
+        unit.end = line.sourceOffset + sourceBytes(text.data(), stop);
+        unit.spaceBefore =
+            pendingSpace && !cjk && !units.empty() && !utf8IsCjkBreakable(firstCodepoint(units.back().text));
+        pendingSpace = false;
+        units.push_back(std::move(unit));
+        rowHasUnits = true;
+      }
+      if (rowHasUnits) row++;
+    }
+    y += lineHeight;
+  }
+  return units;
+}
+
+void TxtReaderActivity::openHighlightSelect(const int touchX, const int touchY) {
+  if (!initialized || currentPageLines.empty()) return;
+  auto units = buildHighlightUnits();
+  int startUnit = -1;
+  constexpr int SLOP = 4;
+  for (int i = 0; i < static_cast<int>(units.size()); ++i) {
+    const auto& u = units[i];
+    if (touchX >= u.x - SLOP && touchX < u.x + u.width + SLOP && touchY >= u.y - SLOP &&
+        touchY < u.y + u.height + SLOP) {
+      startUnit = i;
+      break;
+    }
+  }
+  if (startUnit < 0) {
+    LOG_INF("TRS", "Long-press hit no word (%u words on page)", static_cast<unsigned>(units.size()));
+    return;
+  }
+
+  std::vector<std::pair<uint32_t, uint32_t>> ranges;
+  ranges.reserve(highlights.size());
+  for (const auto& h : highlights) ranges.emplace_back(h.start, h.end);
+
+  // The selection screen redraws this page (plus its marks) on every move.
+  auto lines = std::make_shared<std::vector<TxtLine>>(currentPageLines);
+  auto drawPage = [this, lines] {
+    auto scope = renderer.getFontCacheManager()->createPrewarmScope();
+    drawLines(*lines);
+    scope.endScanAndPrewarm();
+    drawLines(*lines);
+  };
+
+  startActivityForResultWith<HighlightSelectActivity>(
+      [this](const ActivityResult& result) {
+        READING_STATS.resumeSession();
+        const auto* selection = std::get_if<HighlightResult>(&result.data);
+        if (!result.isCancelled && selection) {
+          if (selection->remove) {
+            highlights.erase(std::remove_if(highlights.begin(), highlights.end(),
+                                            [&](const HighlightEntry& h) { return h.start == selection->start; }),
+                             highlights.end());
+          } else {
+            HighlightEntry entry;
+            entry.start = selection->start;
+            entry.end = selection->end;
+            entry.text = selection->text;
+            entry.percentage = static_cast<float>(getProgressPercent()) / 100.0f;
+            if (!HighlightFile::add(highlights, std::move(entry))) LOG_ERR("TRS", "Highlight list full");
+          }
+          if (!HighlightFile::save(bookPath, highlights)) LOG_ERR("TRS", "Failed to save highlights");
+        }
+        requestUpdate();
+      },
+      std::move(units), std::move(drawPage), startUnit, std::move(ranges));
+}
+
+void TxtReaderActivity::openHighlightList() {
+  startActivityForResultWith<HighlightListActivity>(
+      [this](const ActivityResult& result) {
+        READING_STATS.resumeSession();
+        HighlightFile::load(bookPath, highlights);  // the list may have deleted some
+        const auto* selected = std::get_if<TxtOffsetResult>(&result.data);
+        if (!result.isCancelled && selected) {
+          RenderLock lock(*this);
+          const int returnPage = pageMode == PageMode::Indexed ? currentPage : directReturnPage;
+          goToSourceOffset(selected->sourceOffset, returnPage);
+        }
+        requestUpdate();
+      },
+      nullptr, bookPath);
 }
 
 void TxtReaderActivity::renderStatusBar() const {

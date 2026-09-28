@@ -538,8 +538,9 @@ TEST_F(SectionMemoryTest, MixedChapterCacheMatchesVerifiedLayout) {
   // Pre-refactor cache, text and footnotes. The expected value tracks
   // SECTION_FILE_VERSION, whose byte is the first thing in the file: the digest
   // moved when the version went 64 -> 66 for the versioned image cache prefix,
-  // then 66 -> 68 for first-line indent and 68 -> 70 for paragraph spacing.
-  EXPECT_EQ(digest, 9535508317497758948ULL);  // v71/v70 cache (paragraph spacing levels), text and footnotes.
+  // then 66 -> 68 for first-line indent, 68 -> 70 for paragraph spacing and
+  // 70 -> 72 for per-word visible-text offsets in TextBlock.
+  EXPECT_EQ(digest, 10303283751679415394ULL);  // v73/v72 cache (word offsets), text and footnotes.
 }
 
 TEST_F(SectionMemoryTest, CssCacheOomIsReportedAndBasicBuildDoesNotHydrateCss) {

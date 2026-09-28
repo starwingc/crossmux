@@ -100,11 +100,15 @@ if (parsedSize != fileSize) {
 
 ## `section.bin`
 
-### Versions 70 / 71
+### Versions 72 / 73
 
-> Unified firmware uses the CJK-capable cache version **71**. Version 70 is the
+> Unified firmware uses the CJK-capable cache version **73**. Version 72 is the
 > Latin-build counter; its layout is identical, but font metrics differ,
 > so old pagination caches are deliberately invalidated.
+>
+> Versions 72/73 add per-word visible-text offsets to every TextBlock (a `u32`
+> base after `textBytes` plus a `u16` delta array in the arena) so reader
+> highlights can anchor on text positions that survive re-pagination.
 >
 > Versions 34/35 introduced the flat TextBlock arena layout. Versions 36/37
 > invalidated cached word positions after Arabic contextual shaping began measuring
@@ -143,7 +147,8 @@ current reader settings, the section is discarded and rebuilt.
 
 Versions 62/63 add `collectTouchLinks` to the header cache key. Devices without
 touch input neither construct nor hydrate link geometry; button footnotes and
-anchors remain available. Partial-cache sentinels change in lockstep to 212/211 for versions 70/71.
+anchors remain available. Partial-cache sentinels change in lockstep to 212/211 for versions 70/71 and
+210/209 for versions 72/73.
 Versions 64/65 also invalidate pagination produced before bounded no-PSRAM
 soft flushing; disabling embedded styles no longer enlarges the token window.
 On devices without PSRAM, a low-memory styled build is discarded and retried
@@ -280,10 +285,12 @@ struct TextBlock {
     u16 wordCount;
     u8 hasFocus;
     u16 textBytes [[comment("Total size of text[], including one NUL per word")]];
+    u32 offsetBase [[comment("Smallest visible-text offset of the line's words (v72+)")]];
 
     if (wordCount > 0) {
         u16 textOff[wordCount] [[comment("Byte offset of word i's text within text[]")]];
         s16 wordXPos[wordCount];
+        u16 offDelta[wordCount] [[comment("Word visible-text offset minus offsetBase, saturating (v72+)")]];
         if (hasFocus != 0) {
             u16 wordFocusSuffixX[wordCount] [[comment("Suffix x offset from word start")]];
         }
@@ -434,6 +441,28 @@ if (parsedSize != fileSize) {
     std::warning(std::format("Unparsed data detected: {} bytes remaining at offset 0x{:X}", fileSize - parsedSize, parsedSize));
 }
 ```
+
+## Reader highlights
+
+`/.crosspoint/highlights/<book path with / replaced by _, extension dropped>.json`
+stores a book's underlined passages (EPUB and TXT), written by
+`src/util/HighlightFile.cpp`:
+
+```json
+{"highlights": [{"si": 2, "s": 46, "e": 138, "p": 0.2355, "t": "bowed low. ..."}]}
+```
+
+- `si`: EPUB spine index (always 0 for TXT).
+- `s` / `e`: half-open range. EPUB: visible-text codepoint offsets within the
+  spine (`TextBlock::wordVisibleOffset`, the coordinate bookmarks use), so the
+  range survives font, margin and orientation changes. TXT: byte offsets in
+  the source file before any GBK transcoding.
+- `p`: book progress 0..1 when created, for the list. `t`: excerpt, at most
+  120 bytes, cut at a UTF-8 boundary.
+
+Entries are sorted by `(si, s)`; overlapping or touching ranges are merged on
+insert. At most 200 highlights per book. An empty list deletes the file; it
+moves with the book when the book is renamed.
 
 ## TXT reader cache
 

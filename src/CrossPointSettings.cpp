@@ -243,6 +243,13 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   }
   // Apps use stable IDs beyond the uint8_t-only SettingsList, so persist the mask manually.
   doc["hiddenAppsMask"] = hiddenAppsMask;
+  JsonArray presets = doc["lightPresets"].to<JsonArray>();
+  for (const auto& preset : lightPresets) {
+    presets.add(preset[0]);
+    presets.add(preset[1]);
+  }
+  JsonArray zones = doc["touchZones"].to<JsonArray>();
+  for (const uint8_t action : touchZoneActions) zones.add(action);
   doc["appsCatalogVersion"] = appsCatalogVersion;
   doc["buddyClaimed"] = buddyClaimed;
   // Font family and size — both use dynamic getter/setters in SettingsList (the
@@ -394,6 +401,26 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
     for (const JsonObjectConst object : storedBleMap) {
       bleinput::appendValidated(bleKeyMap, object["k"] | static_cast<uint8_t>(0xFF),
                                 object["v"] | static_cast<uint8_t>(0), object["b"] | static_cast<uint8_t>(0xFF));
+    }
+  }
+  {
+    const JsonArrayConst presets = doc["lightPresets"].as<JsonArrayConst>();
+    if (presets.size() == LIGHT_PRESET_COUNT * 2) {
+      for (int i = 0; i < LIGHT_PRESET_COUNT; ++i) {
+        for (int j = 0; j < 2; ++j) {
+          const uint8_t value = presets[i * 2 + j] | lightPresets[i][j];
+          lightPresets[i][j] = std::min<uint8_t>(value, 100);
+        }
+      }
+    }
+  }
+  {
+    const JsonArrayConst zones = doc["touchZones"].as<JsonArrayConst>();
+    for (int i = 0; i < touchZones::kZoneCount; ++i) {
+      const uint8_t value = static_cast<size_t>(i) < zones.size() ? (zones[i] | touchZones::kDefaultActions[i])
+                                                                  : touchZones::kDefaultActions[i];
+      touchZoneActions[i] =
+          value < static_cast<uint8_t>(touchZones::Action::Count) ? value : touchZones::kDefaultActions[i];
     }
   }
   hiddenAppsMask =

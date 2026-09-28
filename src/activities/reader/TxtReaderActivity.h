@@ -8,16 +8,21 @@
 #include <vector>
 
 #include "CrossPointSettings.h"
+#include "HighlightSelectActivity.h"
 #include "ReaderActivity.h"
+#include "util/HighlightFile.h"
 
 class TxtReaderActivity final : public ReaderActivity {
   enum class PageMode : uint8_t { Indexed, Direct };
 
   struct TxtLine {
     std::string text;
+    // File byte offset of text[0] (before GBK->UTF-8 transcoding): the anchor
+    // highlights use. Adds 4 bytes per line (~120 bytes for a page).
+    uint32_t sourceOffset = 0;
     bool indented = false;
   };
-  static_assert(sizeof(TxtLine) <= sizeof(std::string) + alignof(std::string));
+  static_assert(sizeof(TxtLine) <= sizeof(std::string) + 2 * alignof(std::string));
 
   static constexpr size_t DIRECT_PAGE_HISTORY_SIZE = 32;
 
@@ -65,6 +70,16 @@ class TxtReaderActivity final : public ReaderActivity {
   int cachedOrientedMarginLeft = 0;
 
   void renderPage();
+  void drawLines(const std::vector<TxtLine>& lines) const;
+  int lineStartX(const TxtLine& line) const;
+
+  // Underlines (anchored on source-file byte offsets, see HighlightEntry).
+  std::vector<HighlightEntry> highlights;
+  uint32_t sourceBytes(const char* utf8, size_t length) const;
+  void drawLineHighlights(const TxtLine& line, int x, int y) const;
+  std::vector<HighlightUnit> buildHighlightUnits() const;
+  void openHighlightSelect(int touchX, int touchY);
+  void openHighlightList();
   void renderStatusBar() const;
 
   void initializeReader();

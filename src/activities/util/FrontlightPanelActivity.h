@@ -38,6 +38,16 @@ class FrontlightPanelActivity final : public Activity, private UiAppHost {
   // Quick-setting tiles, in grid order (2 columns): night mode, refresh,
   // orientation, touch. Fixed set — shown on touch boards, absent elsewhere.
   static constexpr int kTileCount = 4;
+  // Light presets row (boards with a frontlight): tap applies, long press
+  // saves the current levels. Labels are rebuilt on every render.
+  freeink::ui::TileGridProps presetProps;
+  freeink::ui::TileGridItem presetItems[CrossPointSettings::LIGHT_PRESET_COUNT];
+  char presetLabels[CrossPointSettings::LIGHT_PRESET_COUNT][40] = {};
+  // Screen band of the preset row, measured by render(): long presses are only
+  // routed while the finger is on it, so holding a slider still never turns
+  // into a long press that would end the drag.
+  int presetTop = -1;
+  int presetBottom = -1;
 
   // fui::SliderRowProps and fui::TileGridProps embed a 324-byte fui::StyleSet,
   // so the props the render path fills in live here instead of on the stack
@@ -56,6 +66,9 @@ class FrontlightPanelActivity final : public Activity, private UiAppHost {
   static void onBrightnessStepEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onWarmthStepEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onTileEvent(const freeink::ui::ActionEvent& event, void* user);
+  static void onPresetEvent(const freeink::ui::ActionEvent& event, void* user);
+  void applyPreset(int idx);
+  void savePreset(int idx);
 
   void buildPanelScreen(UiScreen& screen);
   // One slider row: a caption line (name + live percentage) above

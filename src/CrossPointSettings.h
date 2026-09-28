@@ -10,6 +10,7 @@
 #include "BleKeyMapping.h"
 #include "InxItemLayout.h"
 #include "InxRecentLayout.h"
+#include "TouchZones.h"
 #include "util/ReadingGuideLine.h"
 
 // I18nKeys.h is intentionally NOT included here. It is auto-generated and
@@ -250,6 +251,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     TOUCH_READER_ON = 1,
     TOUCH_READER_SWIPE = 2,
     TOUCH_READER_INVERTED_TAP = 3,
+    TOUCH_READER_CUSTOM = 4,  // per-cell actions in touchZoneActions
     TOUCH_READER_CONTROLS_COUNT
   };
 
@@ -419,6 +421,12 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t tiltPageTurn = TILT_OFF;
   // Touch screen reader zones/gestures on boards with a touch controller.
   uint8_t touchReaderControls = TOUCH_READER_ON;
+  // Custom tap zones (TOUCH_READER_CUSTOM): one touchZones::Action per cell of
+  // the 3x3 reader grid, row-major. Persisted manually as "touchZones".
+  uint8_t touchZoneActions[touchZones::kZoneCount] = {
+      touchZones::kDefaultActions[0], touchZones::kDefaultActions[1], touchZones::kDefaultActions[2],
+      touchZones::kDefaultActions[3], touchZones::kDefaultActions[4], touchZones::kDefaultActions[5],
+      touchZones::kDefaultActions[6], touchZones::kDefaultActions[7], touchZones::kDefaultActions[8]};
   // Reader menu open gesture (SHOW_READER_MENU: off / center tap / bottom-edge
   // up-swipe). Only surfaced on home-key boards, where Home is the capacitive
   // key and the bottom edge is free; elsewhere it stays at the Tap default.
@@ -427,6 +435,11 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // when restore-on-wake is disabled.
   uint8_t frontlightBrightness = 60;
   uint8_t frontlightWarmth = 50;
+  // Control-center light presets: {brightness, warmth} for Night, Soft and
+  // Bright. Tapping one applies it; a long press stores the current levels.
+  // Persisted manually as "lightPresets".
+  static constexpr int LIGHT_PRESET_COUNT = 3;
+  uint8_t lightPresets[LIGHT_PRESET_COUNT][2] = {{10, 90}, {35, 60}, {70, 20}};
   uint8_t frontlightOn = 0;
   uint8_t frontlightRestoreOnWake = 1;
   // Language setting (Language enum index). Fresh devices start in English and
