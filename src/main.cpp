@@ -32,6 +32,7 @@
 #include "BleInput.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "ForceRestart.h"
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
@@ -533,6 +534,7 @@ void setup() {
 #endif
 
   gpio.begin();
+  forceRestart::start();
   powerManager.begin();
 
   const auto wakeupReason = gpio.getWakeupReason();
