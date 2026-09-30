@@ -258,20 +258,23 @@ bool MappedInputManager::wasScreenTouchDown(int& x, int& y) const {
   return true;
 }
 
-bool MappedInputManager::wasScreenLongPress(int& x, int& y) const {
+bool MappedInputManager::wasScreenLongPress(int& x, int& y, const bool keepContact) const {
 #if CROSSPOINT_EMULATED
   (void)x;
   (void)y;
+  (void)keepContact;
   return false;
 #else
   float nx = 0.0f;
   float ny = 0.0f;
   if (!gpio.wasTouchLongPress(nx, ny)) return false;
-  gpio.suppressTouchContact();
+  if (!keepContact) gpio.suppressTouchContact();
   renderer.tapToLogical(nx, ny, x, y);
   return true;
 #endif
 }
+
+void MappedInputManager::suppressScreenContact() const { gpio.suppressTouchContact(); }
 
 bool MappedInputManager::isScreenTouchHeld(int& x, int& y) const {
   // Live contact position while the finger is down (no tap-slop gate) — drag tracking.

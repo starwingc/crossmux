@@ -28,10 +28,10 @@ struct HighlightUnit {
 // saved highlight ranges on it; this activity only adds the selection marks.
 //
 // Flows:
-//   Touch: the reader starts it from a long-press with `startUnit` set. Tap
-//     another word to move the end; tap the end word again (or Confirm) to
-//     underline. A long-press on an existing underline opens it for removal:
-//     tap it (or Confirm) to delete, tap elsewhere (or Back) to keep it.
+//   Touch: the reader starts it from a long-press with `startUnit` set and the
+//     contact still down. Dragging extends the underline and lifting saves it
+//     (a lift without a drag underlines the pressed word). A long-press on an
+//     existing underline removes it at once.
 //   Buttons: started from the reader menu with startUnit = -1. Move the
 //     cursor, Confirm sets the start, move again, Confirm underlines.
 // Back always cancels. The result is a HighlightResult.
@@ -50,9 +50,12 @@ class HighlightSelectActivity final : public Activity {
   static void drawSavedUnderline(const GfxRenderer& renderer, int x, int y, int width, int lineHeight);
 
  private:
-  enum class Mode : uint8_t { PickStart, PickEnd, ConfirmRemove };
+  enum class Mode : uint8_t { PickStart, PickEnd, Drag, Remove };
 
   int unitAt(int x, int y) const;
+  // unitAt(), falling back to the closest unit on the nearest row (between lines).
+  int nearestUnit(int x, int y) const;
+  void loopDrag();
   int closestInRow(uint16_t row, int centerX) const;
   void moveVertical(int direction);
   void moveHorizontal(int direction);
@@ -67,7 +70,9 @@ class HighlightSelectActivity final : public Activity {
   Mode mode = Mode::PickStart;
   int anchor = 0;
   int cursor = 0;
-  int removeRange = -1;  // index into savedRanges in ConfirmRemove
+  int removeRange = -1;  // index into savedRanges in Remove
+  bool dragDirty = false;
+  unsigned long lastDragRenderMs = 0;
   uint16_t rowCount = 0;
   unsigned long lastHorizontalMoveTime = 0;
 };

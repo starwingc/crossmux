@@ -735,9 +735,15 @@ bool EpubReaderActivity::runTouchZoneAction(const touchZones::Action action) {
 }
 
 void EpubReaderActivity::openHighlightSelect(const int touchX, const int touchY) {
-  if (!section || !epub) return;
+  if (!section || !epub) {
+    if (touchX >= 0) mappedInput.suppressScreenContact();
+    return;
+  }
   std::unique_ptr<Page> loaded = section->loadPage(section->currentPage);
-  if (!loaded) return;
+  if (!loaded) {
+    if (touchX >= 0) mappedInput.suppressScreenContact();
+    return;
+  }
 
   int marginTop, marginRight, marginBottom, marginLeft;
   renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
@@ -758,8 +764,10 @@ void EpubReaderActivity::openHighlightSelect(const int touchX, const int touchY)
       }
     }
     if (startUnit < 0) {
-      // Long-press on a margin or image: nothing to select.
+      // Long-press on a margin or image: nothing to select. Swallow the lift so
+      // it doesn't also count as a tap.
       LOG_INF("ERS", "Long-press hit no word (%u words on page)", static_cast<unsigned>(units.size()));
+      mappedInput.suppressScreenContact();
       return;
     }
   }
@@ -986,7 +994,8 @@ void EpubReaderActivity::loop() {
   if (!atEndOfBook && !endOfBookMenuOpen && section && mappedInput.hasTouch()) {
     int pressX = 0;
     int pressY = 0;
-    if (mappedInput.wasScreenLongPress(pressX, pressY)) {
+    // The contact stays live: dragging from the long-press extends the underline.
+    if (mappedInput.wasScreenLongPress(pressX, pressY, /*keepContact=*/true)) {
       LOG_INF("ERS", "Long-press at %d,%d", pressX, pressY);
       openHighlightSelect(pressX, pressY);
       return;

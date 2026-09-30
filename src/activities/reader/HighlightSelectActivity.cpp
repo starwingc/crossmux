@@ -19,6 +19,8 @@ constexpr int TOUCH_SLOP = 4;
 constexpr int SAVED_THICKNESS = 2;
 constexpr int SELECTION_THICKNESS = 4;
 constexpr size_t kMaxExcerptBytes = 160;
+// Drag preview: at most one page redraw per interval while the finger moves.
+constexpr unsigned long DRAG_RENDER_INTERVAL_MS = 250;
 }  // namespace
 
 HighlightSelectActivity::HighlightSelectActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -32,7 +34,7 @@ HighlightSelectActivity::HighlightSelectActivity(GfxRenderer& renderer, MappedIn
   if (startUnit >= 0 && startUnit < static_cast<int>(this->units.size())) {
     anchor = cursor = startUnit;
     removeRange = savedRangeAt(startUnit);
-    mode = removeRange >= 0 ? Mode::ConfirmRemove : Mode::PickEnd;
+    mode = removeRange >= 0 ? Mode::Remove : Mode::Drag;
   }
 }
 
@@ -46,6 +48,8 @@ void HighlightSelectActivity::onEnter() {
   Activity::onEnter();
   rowCount = 0;
   for (const auto& unit : units) rowCount = std::max<uint16_t>(rowCount, static_cast<uint16_t>(unit.row + 1));
+  // Remove acts on the first loop() pass; drawing the page first would only flash.
+  if (mode == Mode::Remove) return;
   if (mode == Mode::PickStart && !units.empty()) {
     // Button flow: start mid-page so any word is at most half a page away.
     const int initial = closestInRow(static_cast<uint16_t>(rowCount / 2), renderer.getScreenWidth() / 2);
@@ -72,6 +76,21 @@ int HighlightSelectActivity::unitAt(const int x, const int y) const {
     }
   }
   return -1;
+}
+
+int HighlightSelectActivity::nearestUnit(const int x, const int y) const {
+  const int hit = unitAt(x, y);
+  if (hit >= 0) return hit;
+  int bestRow = -1;
+  int bestDistance = INT_MAX;
+  for (const auto& u : units) {
+    const int distance = std::abs(u.y + u.height / 2 - y);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestRow = u.row;
+    }
+  }
+  return bestRow < 0 ? -1 : closestInRow(static_cast<uint16_t>(bestRow), x);
 }
 
 int HighlightSelectActivity::closestInRow(const uint16_t row, const int centerX) const {
@@ -142,6 +161,16 @@ void HighlightSelectActivity::loop() {
   }
   if (units.empty()) return;
 
+  if (mode == Mode::Remove) {
+    mappedInput.suppressScreenContact();  // the lift must not reach the reader as a tap
+    commitRemove();
+    return;
+  }
+  if (mode == Mode::Drag) {
+    loopDrag();
+    return;
+  }
+
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     switch (mode) {
       case Mode::PickStart:
@@ -152,8 +181,8 @@ void HighlightSelectActivity::loop() {
       case Mode::PickEnd:
         commitAdd();
         return;
-      case Mode::ConfirmRemove:
-        commitRemove();
+      case Mode::Drag:
+      case Mode::Remove:
         return;
     }
   }
@@ -162,17 +191,6 @@ void HighlightSelectActivity::loop() {
   int ty = 0;
   if (mappedInput.wasScreenTapped(tx, ty)) {
     const int hit = unitAt(tx, ty);
-    if (mode == Mode::ConfirmRemove) {
-      if (hit >= 0 && savedRangeAt(hit) == removeRange) {
-        commitRemove();
-      } else {
-        ActivityResult cancelled;
-        cancelled.isCancelled = true;
-        setResult(std::move(cancelled));
-        finish();
-      }
-      return;
-    }
     if (hit < 0) return;
     if (mode == Mode::PickStart) {
       anchor = cursor = hit;
@@ -186,8 +204,6 @@ void HighlightSelectActivity::loop() {
     requestUpdate();
     return;
   }
-
-  if (mode == Mode::ConfirmRemove) return;
 
   const unsigned long now = millis();
   const bool repeat =
@@ -205,21 +221,32 @@ void HighlightSelectActivity::loop() {
   }
 }
 
+void HighlightSelectActivity::loopDrag() {
+  int x = 0;
+  int y = 0;
+  if (mappedInput.isScreenTouchHeld(x, y)) {
+    const int hit = nearestUnit(x, y);
+    if (hit >= 0 && hit != cursor) {
+      cursor = hit;
+      dragDirty = true;
+    }
+    const unsigned long now = millis();
+    if (dragDirty && now - lastDragRenderMs >= DRAG_RENDER_INTERVAL_MS) {
+      dragDirty = false;
+      lastDragRenderMs = now;
+      requestUpdate();
+    }
+    return;
+  }
+  // Lifted, possibly before this screen took over: save what was dragged.
+  mappedInput.suppressScreenContact();
+  commitAdd();
+}
+
 void HighlightSelectActivity::drawSelection() const {
   if (units.empty()) return;
   int first = std::min(anchor, cursor);
   int last = std::max(anchor, cursor);
-  if (mode == Mode::ConfirmRemove) {
-    // Mark the whole saved range that would be removed.
-    first = INT_MAX;
-    last = -1;
-    for (int i = 0; i < static_cast<int>(units.size()); ++i) {
-      if (savedRangeAt(i) != removeRange) continue;
-      first = std::min(first, i);
-      last = std::max(last, i);
-    }
-    if (last < 0) return;
-  }
   // One bar per visual row, spanning the selected units on it.
   for (int i = first; i <= last;) {
     const uint16_t row = units[i].row;
@@ -235,8 +262,8 @@ void HighlightSelectActivity::drawSelection() const {
                       true);
     i = j;
   }
-  // Box around the unit the buttons/taps move.
-  if (mode != Mode::ConfirmRemove) {
+  // Box around the unit the buttons/taps move (the finger covers it in a drag).
+  if (mode != Mode::Drag) {
     const auto& c = units[cursor];
     renderer.drawRect(c.x - 2, c.y - 2, c.width + 4, c.height + 4, 1, true);
   }
@@ -257,8 +284,9 @@ void HighlightSelectActivity::render(RenderLock&&) {
     case Mode::PickEnd:
       banner = mappedInput.hasTouch() ? tr(STR_HIGHLIGHT_PICK_END_TOUCH) : tr(STR_HIGHLIGHT_PICK_END);
       break;
-    case Mode::ConfirmRemove:
-      banner = tr(STR_HIGHLIGHT_CONFIRM_REMOVE);
+    case Mode::Drag:
+    case Mode::Remove:
+      banner = tr(STR_HIGHLIGHT_DRAG);
       break;
   }
   if (units.empty()) banner = tr(STR_HIGHLIGHT_NO_TEXT);
@@ -282,9 +310,7 @@ void HighlightSelectActivity::render(RenderLock&&) {
 
   const char* confirm = "";
   if (!units.empty()) {
-    confirm = mode == Mode::PickStart       ? tr(STR_HIGHLIGHT_SET_START)
-              : mode == Mode::ConfirmRemove ? tr(STR_DELETE)
-                                            : tr(STR_HIGHLIGHT_UNDERLINE);
+    confirm = mode == Mode::PickStart ? tr(STR_HIGHLIGHT_SET_START) : tr(STR_HIGHLIGHT_UNDERLINE);
   }
   const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), confirm, "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

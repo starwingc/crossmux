@@ -66,7 +66,11 @@ class MappedInputManager {
   // release edge — so the ensuing finger lift can't also tap-dismiss the popup
   // the long-press opened. The SDK owns that latch and self-clears it once the
   // contact ends.
-  bool wasScreenLongPress(int& x, int& y) const;
+  // keepContact leaves the contact live so a drag can follow the long-press
+  // (underlining); the caller then owns suppressing its lift.
+  bool wasScreenLongPress(int& x, int& y, bool keepContact = false) const;
+  // Swallows the rest of the current contact (its hold and release edge).
+  void suppressScreenContact() const;
   bool isScreenTouchHeld(int& x, int& y) const;
   // Raw release edge, also true when the contact ended in a swipe or drag-off
   // (which wasScreenTapped never reports). InputSnapshot builders forward it

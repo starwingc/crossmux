@@ -119,7 +119,8 @@ bool TxtReaderActivity::handleFormatInput() {
   if (initialized && !endOfBook && mappedInput.hasTouch()) {
     int pressX = 0;
     int pressY = 0;
-    if (mappedInput.wasScreenLongPress(pressX, pressY)) {
+    // The contact stays live: dragging from the long-press extends the underline.
+    if (mappedInput.wasScreenLongPress(pressX, pressY, /*keepContact=*/true)) {
       LOG_INF("TRS", "Long-press at %d,%d", pressX, pressY);
       READING_STATS.noteActivity();
       openHighlightSelect(pressX, pressY);
@@ -986,7 +987,10 @@ std::vector<HighlightUnit> TxtReaderActivity::buildHighlightUnits() const {
 }
 
 void TxtReaderActivity::openHighlightSelect(const int touchX, const int touchY) {
-  if (!initialized || currentPageLines.empty()) return;
+  if (!initialized || currentPageLines.empty()) {
+    mappedInput.suppressScreenContact();
+    return;
+  }
   auto units = buildHighlightUnits();
   int startUnit = -1;
   constexpr int SLOP = 4;
@@ -1000,6 +1004,7 @@ void TxtReaderActivity::openHighlightSelect(const int touchX, const int touchY) 
   }
   if (startUnit < 0) {
     LOG_INF("TRS", "Long-press hit no word (%u words on page)", static_cast<unsigned>(units.size()));
+    mappedInput.suppressScreenContact();
     return;
   }
 
