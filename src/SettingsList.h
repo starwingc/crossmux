@@ -502,9 +502,18 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
       // Insert after the short power button setting (end of Controls section)
       for (auto it = v.begin(); it != v.end(); ++it) {
         if (it->nameId == StrId::STR_SHORT_PWR_BTN) {
-          v.insert(it + 1, SettingInfo::Enum(StrId::STR_TILT_PAGE_TURN, &CrossPointSettings::tiltPageTurn,
-                                             {StrId::STR_STATE_OFF, StrId::STR_NORMAL, StrId::STR_INVERTED},
-                                             "tiltPageTurn", StrId::STR_CAT_CONTROLS));
+          // insert() may reallocate, so take the tap slot from the returned iterator.
+          it = v.insert(it + 1, SettingInfo::Enum(StrId::STR_TILT_PAGE_TURN, &CrossPointSettings::tiltPageTurn,
+                                                  {StrId::STR_STATE_OFF, StrId::STR_NORMAL, StrId::STR_INVERTED},
+                                                  "tiltPageTurn", StrId::STR_CAT_CONTROLS));
+          if (halTiltSensor.supportsTap()) {
+            v.insert(it + 1,
+                     SettingInfo::Enum(StrId::STR_TAP_PAGE_TURN, &CrossPointSettings::tapPageTurn,
+                                       {StrId::STR_STATE_OFF, StrId::STR_TAP_SINGLE_NEXT, StrId::STR_TAP_DOUBLE_NEXT},
+                                       "tapPageTurn", StrId::STR_CAT_CONTROLS));
+            v.insert(it + 2, SettingInfo::Toggle(StrId::STR_TAP_IN_MENUS, &CrossPointSettings::tapInMenus, "tapInMenus",
+                                                 StrId::STR_CAT_CONTROLS));
+          }
           break;
         }
       }

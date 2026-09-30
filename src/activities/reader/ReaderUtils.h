@@ -53,6 +53,8 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
   const bool usePress = SETTINGS.longPressButtonBehavior == SETTINGS.OFF;
   const bool tiltNext = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedForward();
   const bool tiltPrev = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedBack();
+  const bool tapNext = SETTINGS.tapPageTurn && halTiltSensor.wasTappedNext();
+  const bool tapPrev = SETTINGS.tapPageTurn && halTiltSensor.wasTappedPrev();
   const bool swapFront = input.isNavDirectionSwapped();
   const auto prevButton = swapFront ? MappedInputManager::Button::Right : MappedInputManager::Button::Left;
   const auto nextButton = swapFront ? MappedInputManager::Button::Left : MappedInputManager::Button::Right;
@@ -60,13 +62,14 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
     if (usePress) return input.wasPressed(button);
     return input.wasLongPressed(button, SKIP_HOLD_MS) || input.wasReleased(button);
   };
-  const bool prev =
-      tiltPrev || (pageButtonTriggered(MappedInputManager::Button::PageBack) || pageButtonTriggered(prevButton));
+  const bool prev = tiltPrev || tapPrev ||
+                    (pageButtonTriggered(MappedInputManager::Button::PageBack) || pageButtonTriggered(prevButton));
   const bool powerTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
                          input.wasReleased(MappedInputManager::Button::Power);
-  const bool next = tiltNext || pageButtonTriggered(MappedInputManager::Button::PageForward) || powerTurn ||
+  const bool next = tiltNext || tapNext || pageButtonTriggered(MappedInputManager::Button::PageForward) || powerTurn ||
                     pageButtonTriggered(nextButton);
-  return {prev, next, tiltPrev || tiltNext};
+  // Motion gestures have no hold duration, so they never count as a long press.
+  return {prev, next, tiltPrev || tiltNext || tapPrev || tapNext};
 }
 
 struct TouchPageTurn {

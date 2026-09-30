@@ -18,8 +18,8 @@ void MappedInputManager::update() const {
   gpio.update();
 #if FREEINK_CAP_BLE_HID_HOST
   BleHid.poll();
-  pollBle();
 #endif
+  pollBle();
   for (uint8_t value = 0; value < kButtonCount; ++value) {
     if (!isPressed(static_cast<Button>(value))) longPressFiredButtons &= ~(1u << value);
   }
@@ -182,7 +182,7 @@ bool MappedInputManager::bleEdge(const std::array<bool, kButtonCount>& edges, co
 }
 
 void MappedInputManager::pollBle() const {
-#if FREEINK_CAP_BLE_HID_HOST
+  // Also delivers injectVirtualPress() keys, so the edge bookkeeping runs without BLE.
   bleReleaseEdges = blePressEdges;
   // Synthetic releases are short presses too; never inherit a physical/touch hold.
   bleActivityThisFrame =
@@ -196,6 +196,7 @@ void MappedInputManager::pollBle() const {
     bleActivityThisFrame = true;
   }
 
+#if FREEINK_CAP_BLE_HID_HOST
   freeink::KeyEvent event;
   while (BleHid.popKey(event)) {
     uint8_t kind = 0xFF;
@@ -522,6 +523,11 @@ bool MappedInputManager::wasAnyPressed() const {
 bool MappedInputManager::wasAnyReleased() const {
   return gpio.wasAnyReleased() ||
          std::any_of(bleReleaseEdges.begin(), bleReleaseEdges.end(), [](const bool edge) { return edge; });
+}
+
+void MappedInputManager::injectVirtualPress(const Button button) const {
+  const auto index = static_cast<uint8_t>(button);
+  if (index < kButtonCount) blePendingEdges[index] = true;
 }
 
 void MappedInputManager::setBleCaptureMode(const bool enabled) {

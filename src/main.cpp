@@ -833,7 +833,18 @@ void loop() {
     return;
   }
 
-  halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.orientation, activityManager.isReaderActivity());
+  if (gpio.wasAnyPressed() || gpio.wasAnyReleased()) {
+    halTiltSensor.noteButtonActivity();
+  }
+  const bool inReader = activityManager.isReaderActivity();
+  halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.orientation, inReader, SETTINGS.tapPageTurn,
+                       SETTINGS.tapInMenus);
+  // Menu tap navigation rides the virtual-key path BLE remotes use, so every
+  // list and dialog gets it without per-activity code.
+  if (!inReader && SETTINGS.tapPageTurn && SETTINGS.tapInMenus) {
+    if (halTiltSensor.wasSingleTap()) mappedInputManager.injectVirtualPress(MappedInputManager::Button::Down);
+    if (halTiltSensor.wasDoubleTap()) mappedInputManager.injectVirtualPress(MappedInputManager::Button::Confirm);
+  }
   halClock.update();
 
   renderer.setFadingFix(SETTINGS.fadingFix);

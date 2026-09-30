@@ -122,6 +122,9 @@ class MappedInputManager {
   // Returns the raw front button index that was pressed this frame (or -1 if none).
   int getPressedFrontButton() const;
 
+  // Queues a synthetic press+release for the next update(), as a BLE remote key would.
+  void injectVirtualPress(Button button) const;
+
   void setBleCaptureMode(bool enabled);
   bool takeCapturedBleKey(uint8_t& kind, uint8_t& value);
 
