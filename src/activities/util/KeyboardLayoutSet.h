@@ -7,23 +7,26 @@
 
 namespace keyboard_layouts {
 
+// Languages are named by their _language_code rather than the Language enum,
+// so a build that compiles only some UI languages keeps every layout.
 struct LayoutInfo {
   freeink::ui::KeyboardLayoutId id;
-  Language language;
+  const char* languageCode;
+  const char* label;  // native language name, shown in the layout list
 };
 
 // Table position is the persisted bit assignment. Keep existing rows in place
 // and append new layouts so SDK enum changes cannot reinterpret saved masks.
 inline constexpr LayoutInfo ALL[] = {
-    {freeink::ui::KeyboardLayoutId::QwertyEn, Language::EN},
-    {freeink::ui::KeyboardLayoutId::AzertyFr, Language::FR},
-    {freeink::ui::KeyboardLayoutId::QwertzDe, Language::DE},
-    {freeink::ui::KeyboardLayoutId::SpanishEs, Language::ES},
-    {freeink::ui::KeyboardLayoutId::CyrillicRu, Language::RU},
-    {freeink::ui::KeyboardLayoutId::CyrillicUk, Language::UK},
-    {freeink::ui::KeyboardLayoutId::CyrillicBe, Language::BE},
-    {freeink::ui::KeyboardLayoutId::CyrillicKk, Language::KK},
-    {freeink::ui::KeyboardLayoutId::HebrewIl, Language::HE},
+    {freeink::ui::KeyboardLayoutId::QwertyEn, "EN", "English"},
+    {freeink::ui::KeyboardLayoutId::AzertyFr, "FR", "Français"},
+    {freeink::ui::KeyboardLayoutId::QwertzDe, "DE", "Deutsch"},
+    {freeink::ui::KeyboardLayoutId::SpanishEs, "ES", "Español"},
+    {freeink::ui::KeyboardLayoutId::CyrillicRu, "RU", "Русский"},
+    {freeink::ui::KeyboardLayoutId::CyrillicUk, "UK", "Українська"},
+    {freeink::ui::KeyboardLayoutId::CyrillicBe, "BE", "Беларуская"},
+    {freeink::ui::KeyboardLayoutId::CyrillicKk, "KK", "Қазақша"},
+    {freeink::ui::KeyboardLayoutId::HebrewIl, "HE", "עברית"},
 };
 inline constexpr uint8_t COUNT = sizeof(ALL) / sizeof(ALL[0]);
 static_assert(COUNT <= 16, "keyboard layout mask is uint16_t");

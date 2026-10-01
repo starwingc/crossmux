@@ -1047,7 +1047,13 @@ if __name__ == "__main__":
 else:
     try:
         Import("env")
-        print("[gen_i18n] unified firmware; building full i18n")
-        main(strip_unused=True)
+        # Optional per-env trim, e.g. `custom_i18n_languages = ZH_CN` (English is always kept).
+        languages = set(env.GetProjectOption("custom_i18n_languages", "").split())
+        if languages:
+            print(f"[gen_i18n] building i18n for {', '.join(sorted(languages | {'EN'}))}")
+            main(strip_unused=True, only_languages=languages)
+        else:
+            print("[gen_i18n] unified firmware; building full i18n")
+            main(strip_unused=True)
     except NameError:
         pass
