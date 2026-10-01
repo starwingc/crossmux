@@ -54,6 +54,7 @@ class ParsedText {
   std::vector<VisibleOffsetRebase> visibleOffsetRebases;
   std::deque<std::string> rubyTexts;
   BlockStyle blockStyle;
+  uint8_t wordSpacingPercent = 100;
   uint8_t extraParagraphSpacing;  // 0=off, 1..5=0.5x/0.75x/1x/1.25x/1.5x line height
   uint8_t firstLineIndent;
   bool collectTouchLinks;
@@ -126,5 +127,6 @@ class ParsedText {
   bool isEmpty() const { return words.empty(); }
   bool layoutAndExtractLines(const GfxRenderer& renderer, int fontId, uint16_t viewportWidth,
                              const std::function<bool(std::unique_ptr<TextBlock>, uint32_t)>& processLine,
-                             bool includeLastLine = true);
+                             bool includeLastLine = true, int8_t characterSpacing = 0,
+                             uint8_t wordSpacingPercent = 100);
 };

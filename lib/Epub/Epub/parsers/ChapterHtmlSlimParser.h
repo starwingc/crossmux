@@ -51,6 +51,8 @@ class ChapterHtmlSlimParser {
   float lineCompression;
   uint8_t extraParagraphSpacing;  // 0=off, 1..5=0.5x/0.75x/1x/1.25x/1.5x line height
   uint8_t firstLineIndent;
+  int8_t characterSpacing = 0;
+  uint8_t wordSpacingPercent = 100;
   uint8_t paragraphAlignment;
   uint16_t viewportWidth;
   uint16_t viewportHeight;
@@ -209,6 +211,10 @@ class ChapterHtmlSlimParser {
         tocAnchors(std::move(tocAnchors)) {}
 
   ~ChapterHtmlSlimParser();
+  void setTextSpacing(const int8_t character, const uint8_t wordPercent) {
+    characterSpacing = character;
+    wordSpacingPercent = wordPercent;
+  }
 
   // One-shot parse: builds every page before returning (begin + step* + finish).
   bool parseAndBuildPages();

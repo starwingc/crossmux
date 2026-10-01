@@ -623,7 +623,8 @@ void ChapterHtmlSlimParser::finishTableRow() {
       lines.reserve(MAX_GRID_TABLE_CELL_WORDS * 2);
     }
     if (!tableRowCells[column]->layoutAndExtractLines(
-            renderer, fontId, textWidth, [this, &lines](std::unique_ptr<TextBlock> line, const uint32_t offset) {
+            renderer, fontId, textWidth,
+            [this, &lines](std::unique_ptr<TextBlock> line, const uint32_t offset) {
               const size_t lineIndex = lines.size();
               lines.push_back(std::move(line));
               if (tableLineVisibleOffsets.size() <= lineIndex) {
@@ -631,7 +632,8 @@ void ChapterHtmlSlimParser::finishTableRow() {
               }
               tableLineVisibleOffsets[lineIndex] = std::min(tableLineVisibleOffsets[lineIndex], offset);
               return true;
-            })) {
+            },
+            true, characterSpacing, wordSpacingPercent)) {
       failAllocation("table layout");
       return;
     }
@@ -1805,7 +1807,7 @@ void ChapterHtmlSlimParser::softFlushTextBlock() {
           [this](std::unique_ptr<TextBlock> line, const uint32_t offset) {
             return addLineToPage(std::move(line), offset);
           },
-          false)) {
+          false, characterSpacing, wordSpacingPercent)) {
     failAllocation("page layout");
   }
 }
@@ -2324,10 +2326,12 @@ void ChapterHtmlSlimParser::makePages() {
   const uint16_t effectiveWidth =
       (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
 
-  if (!currentTextBlock->layoutAndExtractLines(renderer, fontId, effectiveWidth,
-                                               [this](std::unique_ptr<TextBlock> textBlock, const uint32_t offset) {
-                                                 return addLineToPage(std::move(textBlock), offset);
-                                               })) {
+  if (!currentTextBlock->layoutAndExtractLines(
+          renderer, fontId, effectiveWidth,
+          [this](std::unique_ptr<TextBlock> textBlock, const uint32_t offset) {
+            return addLineToPage(std::move(textBlock), offset);
+          },
+          true, characterSpacing, wordSpacingPercent)) {
     failAllocation("page layout");
     return;
   }

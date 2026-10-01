@@ -20,6 +20,7 @@
 extern bool failPageSerialization;
 extern std::vector<std::string> collectedFootnotes;
 extern std::vector<std::string> laidOutWords;
+extern std::vector<int16_t> laidOutXpos;
 extern bool invalidateNextTextBlock;
 
 namespace {
@@ -539,8 +540,9 @@ TEST_F(SectionMemoryTest, MixedChapterCacheMatchesVerifiedLayout) {
   // SECTION_FILE_VERSION, whose byte is the first thing in the file: the digest
   // moved when the version went 64 -> 66 for the versioned image cache prefix,
   // then 66 -> 68 for first-line indent, 68 -> 70 for paragraph spacing and
-  // 70 -> 72 for per-word visible-text offsets in TextBlock.
-  EXPECT_EQ(digest, 10303283751679415394ULL);  // v73/v72 cache (word offsets), text and footnotes.
+  // 70 -> 72 for per-word visible-text offsets in TextBlock and 72 -> 74 for
+  // character/word spacing in the header and TextBlock.
+  EXPECT_EQ(digest, 6105901890093154274ULL);  // v75/v74 cache (text spacing), text and footnotes.
 }
 
 TEST_F(SectionMemoryTest, CssCacheOomIsReportedAndBasicBuildDoesNotHydrateCss) {
@@ -690,3 +692,63 @@ TEST_F(SectionMemoryTest, ParagraphSpacingLevelsRoundTripWithoutCollapsingToBool
 }
 
 }  // namespace
+
+// The TextBlock stub records each laid-out line's word x positions in laidOutXpos.
+TEST(TextSpacingLayout, TrackingSeparatesCjkTokensAndScalesWordSpaces) {
+  GfxRenderer renderer;
+  for (bool hyphenation : {false, true}) {
+    BlockStyle style;
+    style.alignment = CssTextAlign::Left;
+    style.textIndentDefined = true;
+    ParsedText text(0, FirstLineIndent::Auto, hyphenation, false, style);
+    text.addWord("가나다", EpdFontFamily::REGULAR);
+    text.addWord("라마", EpdFontFamily::REGULAR);
+    laidOutXpos.clear();
+    unsigned lines = 0;
+    text.layoutAndExtractLines(
+        renderer, 0, 200,
+        [&](std::unique_ptr<TextBlock> line, auto) {
+          ++lines;
+          EXPECT_EQ(line->getBlockStyle().characterSpacing, -1);
+          return true;
+        },
+        true, -1, 150);
+    EXPECT_EQ(lines, 1u);
+    // 8 px syllables with -1 px tracking; the word gap is 150% of a 4 px space, untracked.
+    EXPECT_EQ(laidOutXpos, (std::vector<int16_t>{0, 7, 14, 28, 35}));
+  }
+  EXPECT_EQ(renderer.getTextAdvanceX(0, "ab", EpdFontFamily::REGULAR), 16);
+  EXPECT_EQ(renderer.getSpaceWidth(0, EpdFontFamily::REGULAR), 4);
+}
+
+TEST(TextSpacingLayout, WordSpacingChangesWrapThreshold) {
+  GfxRenderer renderer;
+  for (uint8_t percent : {50, 100, 125, 200}) {
+    BlockStyle style;
+    style.alignment = CssTextAlign::Left;
+    style.textIndentDefined = true;
+    ParsedText text(0, FirstLineIndent::Auto, false, false, style);
+    text.addWord("ab", EpdFontFamily::REGULAR);
+    text.addWord("cd", EpdFontFamily::REGULAR);
+    unsigned lines = 0;
+    text.layoutAndExtractLines(
+        renderer, 0, 36,
+        [&](std::unique_ptr<TextBlock>, auto) {
+          ++lines;
+          return true;
+        },
+        true, 0, percent);
+    EXPECT_EQ(lines, percent > 100 ? 2u : 1u);  // 16 + 16 + scaled 4 px space
+  }
+}
+
+TEST_F(ChapterHtmlSlimParserTest, ParserAppliesTextSpacingToParagraphs) {
+  parser.setTextSpacing(-1, 150);
+  parser.currentTextBlock = std::make_unique<ParsedText>(0, FirstLineIndent::Auto, false, false, BlockStyle());
+  parser.currentTextBlock->addWord("가나다", EpdFontFamily::REGULAR);
+  parser.currentTextBlock->addWord("라마", EpdFontFamily::REGULAR);
+  laidOutXpos.clear();
+  parser.makePages();
+  ASSERT_FALSE(parser.hasFailed());
+  EXPECT_EQ(laidOutXpos, (std::vector<int16_t>{0, 7, 14, 28, 35}));
+}

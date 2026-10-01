@@ -27,9 +27,10 @@ bool computeVisualWordOrder(const std::vector<std::string>& words, bool, std::ve
 }  // namespace BidiUtils
 
 std::vector<std::string> laidOutWords;
+std::vector<int16_t> laidOutXpos;
 bool invalidateNextTextBlock = false;
 
-TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<int16_t>&,
+TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<int16_t>& wordXpos,
                      const std::vector<EpdFontFamily::Style>&, const std::vector<uint8_t>&,
                      const std::vector<uint16_t>&, const BlockStyle& blockStyle, std::vector<std::string> rubyTexts,
                      std::vector<LinkSpan> linkSpans, const std::vector<uint32_t>&)
@@ -37,6 +38,7 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
   numWords = words.size();
   isValid = !std::exchange(invalidateNextTextBlock, false);
   laidOutWords.insert(laidOutWords.end(), words.begin(), words.end());
+  laidOutXpos.insert(laidOutXpos.end(), wordXpos.begin(), wordXpos.end());
 }
 
 bool TextBlock::hasRuby() const { return false; }

@@ -673,6 +673,8 @@ ReaderRenderSpec CrossPointSettings::readerRenderSpec(const uint16_t viewportWid
   ReaderRenderSpec spec;
   spec.fontId = getReaderFontId();
   spec.lineCompression = getReaderLineCompression();
+  spec.characterSpacing = getCharacterSpacing();
+  spec.wordSpacingPercent = wordSpacing;
   spec.extraParagraphSpacing = extraParagraphSpacing;
   spec.firstLineIndent = firstLineIndent;
   spec.paragraphAlignment = paragraphAlignment;
@@ -686,7 +688,9 @@ ReaderRenderSpec CrossPointSettings::readerRenderSpec(const uint16_t viewportWid
 }
 
 float CrossPointSettings::getReaderLineCompression() const {
-  // SD card fonts use same compression as Bookerly (the most neutral values)
+  // SD card fonts get a wider scale than the built-ins (as in CrossPoint): their
+  // faces carry their own, often generous, natural line height, so the
+  // Bookerly-tuned 1.1/1.2 steps were visually near-indistinguishable.
   if (sdFontFamilyName[0] != '\0') {
     switch (lineSpacing) {
       case TIGHT:
@@ -695,9 +699,9 @@ float CrossPointSettings::getReaderLineCompression() const {
       default:
         return 1.0f;
       case WIDE:
-        return 1.1f;
+        return 1.3f;
       case EXTRA_WIDE:
-        return 1.2f;
+        return 1.6f;
     }
   }
 
