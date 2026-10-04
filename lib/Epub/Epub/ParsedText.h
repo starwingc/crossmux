@@ -55,7 +55,7 @@ class ParsedText {
   std::deque<std::string> rubyTexts;
   BlockStyle blockStyle;
   uint8_t wordSpacingPercent = 100;
-  uint8_t extraParagraphSpacing;  // 0=off, 1..5=0.5x/0.75x/1x/1.25x/1.5x line height
+  uint8_t extraParagraphSpacing;  // percent of the line height, 0 = off
   uint8_t firstLineIndent;
   bool collectTouchLinks;
   bool hyphenationEnabled;

@@ -871,6 +871,24 @@ void loop() {
         uint8_t* buf = display.getFrameBuffer();
         logSerial.write(buf, bufferSize);
         logSerial.printf("SCREENSHOT_END\n");
+      } else if (cmd.startsWith("LS ")) {
+        // List one SD directory: "D <name>" or "F <size> <name>" per entry.
+        const String path = cmd.substring(3);
+        HalFile dir = Storage.open(path.c_str());
+        logSerial.printf("LS_START:%s\n", path.c_str());
+        if (dir && dir.isDirectory()) {
+          char name[128];
+          while (HalFile entry = dir.openNextFile()) {
+            entry.getName(name, sizeof(name));
+            if (entry.isDirectory()) {
+              logSerial.printf("D %s\n", name);
+            } else {
+              logSerial.printf("F %u %s\n", static_cast<unsigned>(entry.fileSize()), name);
+            }
+            entry.close();
+          }
+        }
+        logSerial.printf("LS_END\n");
       }
     }
   }

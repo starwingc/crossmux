@@ -21,6 +21,10 @@ constexpr fui::ActionId ACTION_PREV = 3;     // scrub row: previous chapter
 constexpr fui::ActionId ACTION_NEXT = 4;     // scrub row: next chapter
 constexpr fui::ActionId ACTION_SCRUB = 5;    // progress track: dragPermille along the book
 constexpr fui::ActionId ACTION_ROW = 6;      // panel list row, value = row index
+constexpr fui::ActionId ACTION_SLIDER = 7;   // panel slider: dragPermille along the bar
+constexpr fui::ActionId ACTION_SLIDER_STEP = 8;  // panel slider -/+ buttons, value = -1 / +1
+// Panel slider bar height (finger-sized, as in the control-center sheet).
+constexpr int16_t kSliderRowH = 56;
 
 // Scrub row: two small round-cornered chapter buttons flanking a thin progress
 // track with a round knob -- the reading page's chrome is light, so the
@@ -51,7 +55,7 @@ void ReaderToolbarUi::begin() {
   resetUi();
   pending_ = Routed{};
   nav_.reset();
-  for (fui::ActionId id = ACTION_DISMISS; id <= ACTION_ROW; ++id) {
+  for (fui::ActionId id = ACTION_DISMISS; id <= ACTION_SLIDER_STEP; ++id) {
     app.on(id, &ReaderToolbarUi::onAction, this);
   }
   app.setScreen(&ReaderToolbarUi::screenFn, this);
@@ -76,6 +80,8 @@ ReaderToolbarUi::Routed ReaderToolbarUi::route(const MappedInputManager& input) 
   // (dragPermille set), and re-paginating a chapter per frame would be seconds
   // of work per swipe.
   if (pending_.event == Event::Scrub && !touch.snap.touchReleased) pending_.event = Event::None;
+  // The slider reports every drag frame (live readout); the release commits.
+  pending_.released = touch.snap.touchReleased;
   return pending_;
 }
 
@@ -84,8 +90,10 @@ void ReaderToolbarUi::onAction(const fui::ActionEvent& event, void* user) {
   Routed& out = self->pending_;
   out.value = event.value;
   out.permille = event.dragPermille;
-  if (event.action >= ACTION_DISMISS && event.action <= ACTION_ROW) out.event = static_cast<Event>(event.action);
-  if (out.event == Event::Scrub && event.dragPermille < 0) out.event = Event::None;
+  if (event.action >= ACTION_DISMISS && event.action <= ACTION_SLIDER_STEP) {
+    out.event = static_cast<Event>(event.action);
+  }
+  if ((out.event == Event::Scrub || out.event == Event::Slider) && event.dragPermille < 0) out.event = Event::None;
   // A handled action repaints through the reader's own fast path, not through
   // app.invalidate(): the page underneath is the reader's to draw.
   self->app.clearTapFlash();
@@ -244,6 +252,14 @@ void ReaderToolbarUi::buildPanel(UiScreen& screen) {
       static_cast<int16_t>((safe.height * (landscape ? kLandscapePanelHeightPercent : kPanelHeightPercent)) / 100);
   const int16_t cap = static_cast<int16_t>(
       (safe.height * (landscape ? kLandscapePanelHeightMaxPercent : kPanelHeightMaxPercent)) / 100);
+  if (model_.slider) {
+    // Caption line + bar, with air above and below.
+    const int16_t sliderBand = static_cast<int16_t>(screen.target().lineHeight(tokens.smallText.font) +
+                                                    sliderProps_.captionGap + kSliderRowH + 2 * tokens.spaceLg);
+    screen.sheet(sheetProps, static_cast<int16_t>(chrome + sliderBand));
+    buildSlider(screen);
+    return;
+  }
   int sheetRows = (target - chrome + tokens.listRowGap) / rowStride;
   if (static_cast<int16_t>(chrome + (sheetRows + 1) * rowStride - tokens.listRowGap) <= cap) ++sheetRows;
   if (model_.itemCount > 0 && sheetRows > model_.itemCount) sheetRows = model_.itemCount;
@@ -323,4 +339,34 @@ void ReaderToolbarUi::buildPanel(UiScreen& screen) {
     pageStyle.align = fui::TextAlign::Right;
     screen.target().text(pageIndicatorRect_, buf, pageStyle);
   }
+}
+
+// One percentage setting as [-] bar [+] under a caption ("Line spacing  110%"),
+// in place of the list. Drag frames and the -/+ taps come back as Slider /
+// SliderStep events; the reader applies them to the page under the sheet.
+void ReaderToolbarUi::buildSlider(UiScreen& screen) {
+  const auto& tokens = screen.theme();
+  {
+    fui::TextStyle titleStyle = tokens.titleText;
+    titleStyle.bold = true;
+    const fui::Rect line = screen.takeTop(screen.target().lineHeight(tokens.titleText.font), tokens.spaceMd)
+                               .inset(fui::Insets{0, tokens.spaceLg, 0, tokens.spaceLg});
+    screen.target().text(line, model_.panelTitle, titleStyle);
+  }
+  screen.spacer(static_cast<int16_t>(tokens.spaceSm + std::max(0, model_.bottomReserve)), fui::LayoutAnchor::Bottom);
+  buildToolRow(screen, fui::LayoutAnchor::Bottom, tokens.spaceLg);
+  screen.spacer(tokens.spaceSm, fui::LayoutAnchor::Bottom);
+
+  screen.insetContent(fui::Insets{0, tokens.spaceLg, 0, tokens.spaceLg});
+  screen.spacer(tokens.spaceLg);
+  sliderProps_.label = model_.sliderLabel;
+  sliderProps_.value = model_.sliderValue;
+  sliderProps_.sliderValue = model_.sliderPos;
+  sliderProps_.max = std::max(1, model_.sliderMax);
+  sliderProps_.sliderAction = ACTION_SLIDER;
+  sliderProps_.decrement = ACTION_SLIDER_STEP;
+  sliderProps_.increment = ACTION_SLIDER_STEP;
+  sliderProps_.decrementValue = -1;
+  sliderProps_.incrementValue = 1;
+  screen.sliderRow(sliderProps_, kSliderRowH);
 }

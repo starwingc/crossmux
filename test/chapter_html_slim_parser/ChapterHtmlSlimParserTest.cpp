@@ -541,8 +541,9 @@ TEST_F(SectionMemoryTest, MixedChapterCacheMatchesVerifiedLayout) {
   // moved when the version went 64 -> 66 for the versioned image cache prefix,
   // then 66 -> 68 for first-line indent, 68 -> 70 for paragraph spacing and
   // 70 -> 72 for per-word visible-text offsets in TextBlock and 72 -> 74 for
-  // character/word spacing in the header and TextBlock.
-  EXPECT_EQ(digest, 6105901890093154274ULL);  // v75/v74 cache (text spacing), text and footnotes.
+  // character/word spacing in the header and TextBlock, then 74 -> 76 for the
+  // paragraph spacing byte becoming a percent.
+  EXPECT_EQ(digest, 120224443647560316ULL);  // v77/v76 cache (percent spacing), text and footnotes.
 }
 
 TEST_F(SectionMemoryTest, CssCacheOomIsReportedAndBasicBuildDoesNotHydrateCss) {
@@ -647,9 +648,12 @@ TEST_F(SectionMemoryTest, FirstLineIndentRoundTripsAndInvalidatesChangedAndLegac
   }
 }
 
-TEST_F(ChapterHtmlSlimParserTest, ParagraphSpacingLevelsAddToCssMargins) {
-  constexpr int gaps[] = {0, 8, 12, 16, 20, 24};
-  for (uint8_t level = 0; level < std::size(gaps); ++level) {
+TEST_F(ChapterHtmlSlimParserTest, ParagraphSpacingPercentAddsToCssMargins) {
+  // Percent of the 16 px line height, truncated to whole pixels.
+  constexpr uint8_t percents[] = {0, 5, 30, 50, 75, 100, 125, 150};
+  constexpr int gaps[] = {0, 0, 4, 8, 12, 16, 20, 24};
+  for (size_t i = 0; i < std::size(percents); ++i) {
+    const uint8_t level = percents[i];
     parser.extraParagraphSpacing = level;
     parser.currentPage.reset();
     parser.currentPageNextY = 0;
@@ -660,18 +664,18 @@ TEST_F(ChapterHtmlSlimParserTest, ParagraphSpacingLevelsAddToCssMargins) {
     parser.currentTextBlock->addWord("word", EpdFontFamily::REGULAR);
     parser.makePages();
     ASSERT_FALSE(parser.hasFailed());
-    EXPECT_EQ(parser.currentPageNextY, 16 + 10 + gaps[level]);
+    EXPECT_EQ(parser.currentPageNextY, 16 + 10 + gaps[i]);
   }
 }
 
-TEST_F(SectionMemoryTest, ParagraphSpacingLevelsRoundTripWithoutCollapsingToBool) {
+TEST_F(SectionMemoryTest, ParagraphSpacingPercentRoundTripsWithoutCollapsingToBool) {
   std::string html = "<html><body>";
   for (int i = 0; i < 400; ++i) html += "<p>word</p>";
   html += "</body></html>";
   writeHtml(html);
   spec.firstLineIndent = FirstLineIndent::NoIndent;
   for (const bool partial : {false, true}) {
-    for (uint8_t level = 0; level <= 5; ++level) {
+    for (const uint8_t level : {0, 5, 50, 150}) {
       spec.extraParagraphSpacing = level;
       {
         Section section(epub, 0, renderer);
@@ -684,7 +688,7 @@ TEST_F(SectionMemoryTest, ParagraphSpacingLevelsRoundTripWithoutCollapsingToBool
         EXPECT_EQ(restored.isPartial(), partial);
       }
       auto changed = spec;
-      changed.extraParagraphSpacing = (level + 1) % 6;
+      changed.extraParagraphSpacing = static_cast<uint8_t>(level + 5);
       Section mismatch(epub, 0, renderer);
       EXPECT_FALSE(mismatch.loadSectionFile(changed));
     }

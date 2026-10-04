@@ -47,13 +47,9 @@ constexpr StrId STYLE_ROW_NAME_IDS[] = {StrId::STR_FOCUS_READING,
                                         StrId::STR_FAKE_BOLD,
                                         StrId::STR_TEXT_AA};
 
-constexpr StrId LINE_SPACING_IDS[] = {StrId::STR_TIGHT, StrId::STR_NORMAL, StrId::STR_WIDE, StrId::STR_EXTRA_WIDE};
 constexpr StrId FIRST_LINE_INDENT_IDS[] = {StrId::STR_FIRST_LINE_INDENT_AUTO, StrId::STR_FIRST_LINE_INDENT_INDENT,
                                            StrId::STR_FIRST_LINE_INDENT_NO_INDENT};
 static_assert(std::size(FIRST_LINE_INDENT_IDS) == 3);
-constexpr StrId EXTRA_SPACING_IDS[] = {StrId::STR_EXTRA_SPACING_OFF,  StrId::STR_EXTRA_SPACING_0_5,
-                                       StrId::STR_EXTRA_SPACING_0_75, StrId::STR_EXTRA_SPACING_1,
-                                       StrId::STR_EXTRA_SPACING_1_25, StrId::STR_EXTRA_SPACING_1_5};
 constexpr StrId SYNTHETIC_BOLD_IDS[] = {StrId::STR_STATE_OFF, StrId::STR_FAKE_BOLD_LIGHT, StrId::STR_FAKE_BOLD_STANDARD,
                                         StrId::STR_FAKE_BOLD_HEAVY};
 static_assert(std::size(SYNTHETIC_BOLD_IDS) == CrossPointSettings::SYNTHETIC_BOLD_COUNT);
@@ -611,15 +607,25 @@ void TextSettingsActivity::maybeOfferCompleteChineseFont() {
 }
 #endif
 
+void TextSettingsActivity::showPercentPopup(const StrId title, uint8_t CrossPointSettings::* field, const int min,
+                                            const int max, const int step) {
+  std::vector<std::string> options;
+  options.reserve((max - min) / step + 1);
+  for (int v = min; v <= max; v += step) options.push_back(std::to_string(v) + "%");
+  const int cur = (std::clamp<int>(SETTINGS.*field, min, max) - min) / step;
+  optionPopup_.show(title, options, cur, [field, min, step](int idx) {
+    SETTINGS.*field = static_cast<uint8_t>(min + idx * step);
+    SETTINGS.saveToFile();
+  });
+  requestUpdate();
+}
+
 void TextSettingsActivity::confirmLayoutRow(int row) {
   switch (static_cast<LayoutRow>(row)) {
     case LayoutRow::ParaSpacing:
-      optionPopup_.show(StrId::STR_EXTRA_SPACING, EXTRA_SPACING_IDS, static_cast<int>(std::size(EXTRA_SPACING_IDS)),
-                        SETTINGS.extraParagraphSpacing, [](int idx) {
-                          SETTINGS.extraParagraphSpacing = static_cast<uint8_t>(idx);
-                          SETTINGS.saveToFile();
-                        });
-      requestUpdate();
+      showPercentPopup(StrId::STR_EXTRA_SPACING, &CrossPointSettings::paragraphSpacingPercent,
+                       CrossPointSettings::PARAGRAPH_SPACING_MIN, CrossPointSettings::PARAGRAPH_SPACING_MAX,
+                       CrossPointSettings::PARAGRAPH_SPACING_STEP);
       break;
     case LayoutRow::FirstLineIndent:
       optionPopup_.show(StrId::STR_FIRST_LINE_INDENT, FIRST_LINE_INDENT_IDS,
@@ -630,12 +636,9 @@ void TextSettingsActivity::confirmLayoutRow(int row) {
       requestUpdate();
       break;
     case LayoutRow::LineSpacing:
-      optionPopup_.show(StrId::STR_LINE_SPACING, LINE_SPACING_IDS, static_cast<int>(std::size(LINE_SPACING_IDS)),
-                        SETTINGS.lineSpacing, [](int idx) {
-                          SETTINGS.lineSpacing = static_cast<uint8_t>(idx);
-                          SETTINGS.saveToFile();
-                        });
-      requestUpdate();
+      showPercentPopup(StrId::STR_LINE_SPACING, &CrossPointSettings::lineSpacingPercent,
+                       CrossPointSettings::LINE_SPACING_MIN, CrossPointSettings::LINE_SPACING_MAX,
+                       CrossPointSettings::LINE_SPACING_STEP);
       break;
     case LayoutRow::Alignment:
       optionPopup_.show(StrId::STR_ALIGNMENT, ALIGNMENT_IDS, static_cast<int>(std::size(ALIGNMENT_IDS)),
@@ -684,14 +687,10 @@ void TextSettingsActivity::confirmLayoutRow(int row) {
 
 std::string TextSettingsActivity::layoutValueText(int row) const {
   switch (static_cast<LayoutRow>(row)) {
-    case LayoutRow::LineSpacing: {
-      const uint8_t v = SETTINGS.lineSpacing;
-      return v < std::size(LINE_SPACING_IDS) ? I18N.get(LINE_SPACING_IDS[v]) : I18N.get(StrId::STR_NORMAL);
-    }
-    case LayoutRow::ParaSpacing: {
-      const uint8_t v = SETTINGS.extraParagraphSpacing;
-      return v < std::size(EXTRA_SPACING_IDS) ? I18N.get(EXTRA_SPACING_IDS[v]) : I18N.get(StrId::STR_EXTRA_SPACING_OFF);
-    }
+    case LayoutRow::LineSpacing:
+      return std::to_string(SETTINGS.lineSpacingPercent) + "%";
+    case LayoutRow::ParaSpacing:
+      return std::to_string(SETTINGS.paragraphSpacingPercent) + "%";
     case LayoutRow::FirstLineIndent: {
       const uint8_t v = SETTINGS.firstLineIndent;
       return v < std::size(FIRST_LINE_INDENT_IDS) ? I18N.get(FIRST_LINE_INDENT_IDS[v])

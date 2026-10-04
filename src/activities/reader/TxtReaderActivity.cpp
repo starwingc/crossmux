@@ -317,7 +317,7 @@ void TxtReaderActivity::initializeReader() {
   viewportWidth = renderer.getScreenWidth() - cachedOrientedMarginLeft - cachedOrientedMarginRight;
   const int viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;
   const int lineHeight = renderer.getLineHeight(cachedFontId);
-  if (SETTINGS.extraParagraphSpacing == 0) {
+  if (SETTINGS.paragraphSpacingPercent == 0) {
     const int cjkAdvance = renderer.getTextAdvanceX(cachedFontId, "我", EpdFontFamily::REGULAR);
     paragraphIndentWidth =
         cjkAdvance > 0 ? cjkAdvance * 2 : renderer.getSpaceWidth(cachedFontId, EpdFontFamily::REGULAR) * 3;
@@ -432,7 +432,7 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<TxtLine>& ou
 
   // Parse lines from buffer
   size_t pos = 0;
-  const bool compactParagraphs = SETTINGS.extraParagraphSpacing == 0;
+  const bool compactParagraphs = SETTINGS.paragraphSpacingPercent == 0;
   const bool naturalAlignment = cachedParagraphAlignment == CrossPointSettings::LEFT_ALIGN ||
                                 cachedParagraphAlignment == CrossPointSettings::JUSTIFIED;
   txt_paragraph::State paragraphState(offset == 0);
@@ -1206,7 +1206,7 @@ bool TxtReaderActivity::loadPageIndexCache() {
   if (version >= txt_page_index::PARAGRAPH_LAYOUT_CACHE_VERSION) {
     if (!readPodChecked(f, cachedExtraParagraphSpacing) || cachedExtraParagraphSpacing > 1) return false;
   }
-  if (!txt_page_index::canReuseParagraphLayout(version, SETTINGS.extraParagraphSpacing != 0,
+  if (!txt_page_index::canReuseParagraphLayout(version, SETTINGS.paragraphSpacingPercent != 0,
                                                cachedExtraParagraphSpacing != 0)) {
     LOG_DBG("TRS", "Cache paragraph spacing mismatch, rebuilding");
     return false;
@@ -1297,7 +1297,7 @@ bool TxtReaderActivity::savePageIndexCache() {
         // (spacing on); the EPUB-only multiplier levels 2-5 have no TXT
         // rendering effect, so persist the actual 0/1 layout behaviour. The
         // loader (cachedExtraParagraphSpacing > 1) rejects anything else.
-        !writePodChecked(f, static_cast<uint8_t>(SETTINGS.extraParagraphSpacing != 0)) ||
+        !writePodChecked(f, static_cast<uint8_t>(SETTINGS.paragraphSpacingPercent != 0)) ||
         !writePodChecked(f, complete) || !writePodChecked(f, encoding) || !writePodChecked(f, pageCount)) {
       LOG_ERR("TRS", "Short write saving page index header");
       return false;

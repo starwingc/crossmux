@@ -48,10 +48,11 @@ namespace {
 //   70 / 71 - paragraph spacing stores levels 0..5 as a byte, not a boolean
 //   72 / 73 - TextBlock stores per-word visible-text offsets (highlight anchors)
 //   74 / 75 - character and word spacing in the header; TextBlock stores character spacing
+//   76 / 77 - paragraph spacing byte is a percent of the line height, not a 0..5 level
 #ifdef ENABLE_CHINESE_VERSION
-constexpr uint8_t SECTION_FILE_VERSION = 75;
+constexpr uint8_t SECTION_FILE_VERSION = 77;
 #else
-constexpr uint8_t SECTION_FILE_VERSION = 74;
+constexpr uint8_t SECTION_FILE_VERSION = 76;
 #endif
 // Written into the version field while a build is in progress; patched to
 // SECTION_FILE_VERSION only when the build is finalized. An abandoned /

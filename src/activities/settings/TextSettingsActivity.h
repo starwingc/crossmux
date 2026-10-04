@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "CrossPointSettings.h"
 #include "TextSettingsPreview.h"
 #include "activities/UiTabListActivity.h"
 #include "components/OptionPopup.h"
@@ -87,6 +88,8 @@ class TextSettingsActivity final : public UiTabListActivity {
   // installed point sizes. Call after any family change.
   void rebuildSizeList();
   void confirmLayoutRow(int row);
+  // Option list of min..max in step-percent increments, writing SETTINGS.*field.
+  void showPercentPopup(StrId title, uint8_t CrossPointSettings::* field, int min, int max, int step);
   void confirmStyleRow(int row);
   // Applies the row at the given list index for the active tab (Confirm and tap share this).
   void activateRow(int row);

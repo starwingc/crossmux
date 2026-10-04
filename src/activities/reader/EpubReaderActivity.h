@@ -83,6 +83,10 @@ class EpubReaderActivity final : public ReaderActivity {
   static constexpr unsigned long PANEL_HOLD_MS = 1500;
   static constexpr int PANEL_HOLD_STEP = 10;
   bool panelHoldJumped = false;
+  // Text panel row whose percentage slider replaces the list (-1 = list shown),
+  // and the value being dragged before it is committed on release.
+  int textSliderRow = -1;
+  int textSliderValue = 0;
   // Whether the panel draws its cursor row. Button boards always do; touch
   // boards only once a button has moved it, so a tapped row is not left inverted.
   bool panelCursorShown = false;
@@ -171,6 +175,9 @@ class EpubReaderActivity final : public ReaderActivity {
   void showTextRowPopup(int row);
   // Persist + re-paginate + re-render under the open panel (live preview).
   void applyTextSettingLive();
+  // Text panel slider (line / paragraph spacing): returns true when it consumed the frame.
+  bool handleTextSliderInput(const ReaderToolbarUi::Routed& routed);
+  void commitTextSlider(int value);
   void paintOverlayPopup();
   // Persist the reader text settings, (re)load the selected SD font, and
   // re-paginate the current chapter so changes apply without re-opening the book.

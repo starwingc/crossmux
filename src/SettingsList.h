@@ -261,9 +261,10 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
         // this entry is always replaced by buildFontSizeSetting() below. It only
         // fixes the setting's position in the Reader category.
         SettingInfo::Enum(StrId::STR_FONT_SIZE, nullptr, {}, "fontSize", StrId::STR_CAT_READER).withTextSettings(),
-        SettingInfo::Enum(StrId::STR_LINE_SPACING, &CrossPointSettings::lineSpacing,
-                          {StrId::STR_TIGHT, StrId::STR_NORMAL, StrId::STR_WIDE, StrId::STR_EXTRA_WIDE}, "lineSpacing",
-                          StrId::STR_CAT_READER)
+        SettingInfo::Value(StrId::STR_LINE_SPACING, &CrossPointSettings::lineSpacingPercent,
+                           {CrossPointSettings::LINE_SPACING_MIN, CrossPointSettings::LINE_SPACING_MAX,
+                            CrossPointSettings::LINE_SPACING_STEP},
+                           "lineSpacingPercent", StrId::STR_CAT_READER)
             .withTextSettings(),
         SettingInfo::Value(StrId::STR_WORD_SPACING, &CrossPointSettings::wordSpacing,
                            {CrossPointSettings::WORD_SPACING_MIN, CrossPointSettings::WORD_SPACING_MAX,
@@ -318,10 +319,10 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
             StrId::STR_ORIENTATION, &CrossPointSettings::orientation,
             {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CW, StrId::STR_ORIENTATION_INVERTED, StrId::STR_LANDSCAPE_CCW},
             "orientation", StrId::STR_CAT_READER),
-        SettingInfo::Enum(StrId::STR_EXTRA_SPACING, &CrossPointSettings::extraParagraphSpacing,
-                          {StrId::STR_EXTRA_SPACING_OFF, StrId::STR_EXTRA_SPACING_0_5, StrId::STR_EXTRA_SPACING_0_75,
-                           StrId::STR_EXTRA_SPACING_1, StrId::STR_EXTRA_SPACING_1_25, StrId::STR_EXTRA_SPACING_1_5},
-                          "extraParagraphSpacing", StrId::STR_CAT_READER)
+        SettingInfo::Value(StrId::STR_EXTRA_SPACING, &CrossPointSettings::paragraphSpacingPercent,
+                           {CrossPointSettings::PARAGRAPH_SPACING_MIN, CrossPointSettings::PARAGRAPH_SPACING_MAX,
+                            CrossPointSettings::PARAGRAPH_SPACING_STEP},
+                           "paragraphSpacingPercent", StrId::STR_CAT_READER)
             .withTextSettings(),
         SettingInfo::Enum(StrId::STR_FIRST_LINE_INDENT, &CrossPointSettings::firstLineIndent,
                           {StrId::STR_FIRST_LINE_INDENT_AUTO, StrId::STR_FIRST_LINE_INDENT_INDENT,

@@ -353,7 +353,7 @@ int main(int argc,char** argv) {
         read = method(source, 'bool readPodChecked(')
         write = method(source, 'bool writePodChecked(')
         expression = re.search(
-            r'!writePodChecked\(f, (.*SETTINGS\.extraParagraphSpacing.*?)\)\s*\|\|\s*!writePodChecked\(f, complete\)',
+            r'!writePodChecked\(f, (.*SETTINGS\.paragraphSpacingPercent.*?)\)\s*\|\|\s*!writePodChecked\(f, complete\)',
             source).group(1)
         run_cpp(r'''
 #include <cassert>
@@ -369,11 +369,11 @@ struct HalFile {
     std::memcpy(data,bytes.data()+position,size);position+=size;return static_cast<int>(size);
   }
 };
-struct {uint8_t extraParagraphSpacing=0;} SETTINGS;
+struct {uint8_t paragraphSpacingPercent=0;} SETTINGS;
 ''' + 'template<typename T>\n' + read + '\ntemplate<typename T>\n' + write + r'''
 int main() {
-  for(uint8_t level=0;level<=5;++level) {
-    SETTINGS.extraParagraphSpacing=level;
+  for(uint8_t level : {0, 5, 50, 150}) {
+    SETTINGS.paragraphSpacingPercent=level;
     HalFile f;
     assert(writePodChecked(f, ''' + expression + r'''));
     const uint8_t complete=1, encoding=1;

@@ -2601,13 +2601,31 @@ void EpubReaderActivity::renderStatusBar() const {
 // ---------------------------------------------------------------------------
 
 namespace {
-constexpr StrId kTextRowNames[] = {StrId::STR_FONT, StrId::STR_FONT_SIZE, StrId::STR_LINE_SPACING,
-                                   StrId::STR_PARA_ALIGNMENT, StrId::STR_FOCUS_READING};
-constexpr StrId kSpacingIds[] = {StrId::STR_TIGHT, StrId::STR_NORMAL, StrId::STR_WIDE, StrId::STR_EXTRA_WIDE};
+constexpr StrId kTextRowNames[] = {StrId::STR_FONT,          StrId::STR_FONT_SIZE,      StrId::STR_LINE_SPACING,
+                                   StrId::STR_EXTRA_SPACING, StrId::STR_PARA_ALIGNMENT, StrId::STR_FOCUS_READING};
+constexpr int kTextRowLineSpacing = 2;
+constexpr int kTextRowParaSpacing = 3;
+constexpr int kTextRowAlignment = 4;
+constexpr int kTextRowFocus = 5;
+
+// Range of the Text panel's percentage sliders.
+struct PercentRange {
+  uint8_t CrossPointSettings::* field;
+  int min;
+  int max;
+  int step;
+};
+PercentRange textSliderRange(const int row) {
+  if (row == kTextRowParaSpacing) {
+    return {&CrossPointSettings::paragraphSpacingPercent, CrossPointSettings::PARAGRAPH_SPACING_MIN,
+            CrossPointSettings::PARAGRAPH_SPACING_MAX, CrossPointSettings::PARAGRAPH_SPACING_STEP};
+  }
+  return {&CrossPointSettings::lineSpacingPercent, CrossPointSettings::LINE_SPACING_MIN,
+          CrossPointSettings::LINE_SPACING_MAX, CrossPointSettings::LINE_SPACING_STEP};
+}
 constexpr StrId kAlignIds[] = {StrId::STR_JUSTIFY, StrId::STR_ALIGN_LEFT, StrId::STR_CENTER, StrId::STR_ALIGN_RIGHT,
                                StrId::STR_BOOK_S_STYLE};
 constexpr int kTextRowCount = static_cast<int>(std::size(kTextRowNames));
-static_assert(std::size(kSpacingIds) == CrossPointSettings::LINE_COMPRESSION_COUNT, "line spacing labels");
 static_assert(std::size(kAlignIds) == CrossPointSettings::PARAGRAPH_ALIGNMENT_COUNT, "alignment labels");
 }  // namespace
 
@@ -2638,11 +2656,13 @@ std::string EpubReaderActivity::textRowValue(int row) const {
       return I18N.get(kFamily[SETTINGS.fontFamily % CrossPointSettings::FONT_FAMILY_COUNT]);
     case 1:
       return std::to_string(SETTINGS.fontPointSize) + " pt";
-    case 2:
-      return I18N.get(kSpacingIds[SETTINGS.lineSpacing % CrossPointSettings::LINE_COMPRESSION_COUNT]);
-    case 3:
+    case kTextRowLineSpacing:
+      return std::to_string(SETTINGS.lineSpacingPercent) + "%";
+    case kTextRowParaSpacing:
+      return std::to_string(SETTINGS.paragraphSpacingPercent) + "%";
+    case kTextRowAlignment:
       return I18N.get(kAlignIds[SETTINGS.paragraphAlignment % CrossPointSettings::PARAGRAPH_ALIGNMENT_COUNT]);
-    case 4:
+    case kTextRowFocus:
       return SETTINGS.focusReadingEnabled ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
     default:
       return "";
@@ -2682,14 +2702,7 @@ void EpubReaderActivity::showTextRowPopup(const int row) {
       });
       break;
     }
-    case 2:
-      overlayPopup.show(StrId::STR_LINE_SPACING, kSpacingIds, static_cast<int>(std::size(kSpacingIds)),
-                        SETTINGS.lineSpacing % CrossPointSettings::LINE_COMPRESSION_COUNT, [this](int idx) {
-                          SETTINGS.lineSpacing = static_cast<uint8_t>(idx);
-                          applyTextSettingLive();
-                        });
-      break;
-    case 3:
+    case kTextRowAlignment:
       overlayPopup.show(StrId::STR_PARA_ALIGNMENT, kAlignIds, static_cast<int>(std::size(kAlignIds)),
                         SETTINGS.paragraphAlignment % CrossPointSettings::PARAGRAPH_ALIGNMENT_COUNT, [this](int idx) {
                           SETTINGS.paragraphAlignment = static_cast<uint8_t>(idx);
@@ -2700,6 +2713,76 @@ void EpubReaderActivity::showTextRowPopup(const int row) {
       return;
   }
   paintOverlayPopup();
+}
+
+bool EpubReaderActivity::handleTextSliderInput(const ReaderToolbarUi::Routed& routed) {
+  const auto range = textSliderRange(textSliderRow);
+  const int maxPos = (range.max - range.min) / range.step;
+  const auto redraw = [this] {
+    RenderLock lock;
+    renderOverlay();
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+  };
+  const auto backToList = [this, &redraw] {
+    textSliderRow = -1;
+    redraw();
+  };
+  const auto stepBy = [this, &range](int delta) {
+    commitTextSlider(std::clamp(textSliderValue + delta * range.step, range.min, range.max));
+  };
+
+  switch (routed.event) {
+    case ReaderToolbarUi::Event::Slider: {
+      const int pos = (routed.permille * maxPos + 500) / 1000;
+      const int value = std::clamp(range.min + pos * range.step, range.min, range.max);
+      if (routed.released) {
+        commitTextSlider(value);
+      } else if (value != textSliderValue) {
+        // Live readout + knob only; re-paginating per drag frame would take seconds.
+        textSliderValue = value;
+        redraw();
+      }
+      return true;
+    }
+    case ReaderToolbarUi::Event::SliderStep:
+      stepBy(routed.value);
+      return true;
+    case ReaderToolbarUi::Event::Dismiss:
+      backToList();
+      return true;
+    case ReaderToolbarUi::Event::Tool:
+      textSliderRow = -1;
+      return false;  // the panel switcher handles it
+    default:
+      break;
+  }
+  if (routed.routed) return true;
+
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
+      mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    backToList();
+    return true;
+  }
+  if (mappedInput.wasReleased(MappedInputManager::Button::Left) ||
+      mappedInput.wasReleased(MappedInputManager::Button::Up)) {
+    stepBy(-1);
+    return true;
+  }
+  if (mappedInput.wasReleased(MappedInputManager::Button::Right) ||
+      mappedInput.wasReleased(MappedInputManager::Button::Down)) {
+    stepBy(1);
+    return true;
+  }
+  return true;  // the slider owns the panel while shown
+}
+
+// Persist the slider value and re-lay-out the page under the sheet.
+void EpubReaderActivity::commitTextSlider(const int value) {
+  textSliderValue = value;
+  auto& field = SETTINGS.*textSliderRange(textSliderRow).field;
+  if (field == value) return;
+  field = static_cast<uint8_t>(value);
+  applyTextSettingLive();
 }
 
 void EpubReaderActivity::discardOverlayPage() {
@@ -2732,6 +2815,7 @@ void EpubReaderActivity::openOverlay(Overlay target) {
       break;
     case Overlay::Text:
       static_assert(sizeof(SETTINGS.sdFontFamilyName) == 32);
+      textSliderRow = -1;
       fontPreview.begin(SETTINGS.sdFontFamilyName, SETTINGS.fontPointSize, SETTINGS.sdFontFlashPreload != 0);
       panelIndex = 0;
       toolbarUi->nav().reset();
@@ -2823,7 +2907,7 @@ void EpubReaderActivity::renderOverlay() {
   // Panels override below: there the pill marks the open panel on every board.
   model.activeTool = (overlay == Overlay::Toolbar && !panelCursorShown) ? -1 : focusedTool;
   // Strings the model points at live here until render() returns.
-  std::string chapterTitle, pageInfo;
+  std::string chapterTitle, pageInfo, sliderLabel, sliderValue;
 
   if (overlay == Overlay::Toolbar) {
     chapterTitle = currentChapterTitle();
@@ -2861,6 +2945,16 @@ void EpubReaderActivity::renderOverlay() {
   } else if (overlay == Overlay::Text) {
     model.panelTitle = tr(STR_TOOL_TEXT);
     model.itemCount = kTextRowCount;
+    if (textSliderRow >= 0) {
+      const auto range = textSliderRange(textSliderRow);
+      sliderLabel = textRowName(textSliderRow);
+      sliderValue = std::to_string(textSliderValue) + "%";
+      model.slider = true;
+      model.sliderLabel = sliderLabel.c_str();
+      model.sliderValue = sliderValue.c_str();
+      model.sliderPos = (textSliderValue - range.min) / range.step;
+      model.sliderMax = (range.max - range.min) / range.step;
+    }
     model.rowText = [this](int i) { return textRowName(i); };
     model.rowValue = [this](int i) { return textRowValue(i); };
   } else {
@@ -2985,6 +3079,8 @@ void EpubReaderActivity::handleOverlayInput() {
   }
 
   // --- Panels (Contents / Text / More) ---
+  if (overlay == Overlay::Text && textSliderRow >= 0 && handleTextSliderInput(routed)) return;
+
   const int count = overlay == Overlay::Contents ? epub->getTocItemsCount()
                     : overlay == Overlay::Text   ? kTextRowCount
                                                  : static_cast<int>(moreItems.size());
@@ -3016,7 +3112,12 @@ void EpubReaderActivity::handleOverlayInput() {
           if (toolbarUi) toolbarUi->begin();  // the picker drew its own FUI screen
           requestUpdate();                    // re-render page + Text panel
         });
-      } else if (panelIndex == 4) {
+      } else if (panelIndex == kTextRowLineSpacing || panelIndex == kTextRowParaSpacing) {
+        // Percentage rows swap the list for a [-] bar [+] slider over the page.
+        textSliderRow = panelIndex;
+        textSliderValue = SETTINGS.*textSliderRange(panelIndex).field;
+        fastRedraw();
+      } else if (panelIndex == kTextRowFocus) {
         // Focus Reading is a genuine on/off: a tap toggles and applies live.
         SETTINGS.focusReadingEnabled = SETTINGS.focusReadingEnabled ? 0 : 1;
         applyTextSettingLive();

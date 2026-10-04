@@ -42,9 +42,13 @@ constexpr int16_t kTileHeight = 84;
 constexpr int16_t kPresetHeight = 64;
 constexpr int kPresetCols = CrossPointSettings::LIGHT_PRESET_COUNT;
 constexpr StrId kPresetNames[CrossPointSettings::LIGHT_PRESET_COUNT] = {
-    StrId::STR_LIGHT_PRESET_NIGHT, StrId::STR_LIGHT_PRESET_SOFT, StrId::STR_LIGHT_PRESET_BRIGHT};
+    StrId::STR_LIGHT_PRESET_NIGHT, StrId::STR_LIGHT_PRESET_SOFT, StrId::STR_LIGHT_PRESET_BRIGHT,
+    StrId::STR_LIGHT_PRESET_CUSTOM};
 constexpr int16_t kTileGap = 16;
 constexpr int kTileCols = 2;
+// Landscape is only 480 px tall: the 2x2 tile grid would push the last row
+// off the screen, so the four tiles share one row there.
+constexpr int kTileColsLandscape = 4;
 // One percent per press, on the -/+ buttons and on the physical Left/Right keys
 // alike (both repeat while held), so a level can be set exactly.
 constexpr int BRIGHTNESS_STEP = 1;
@@ -105,7 +109,8 @@ void FrontlightPanelActivity::persistLightSettings() {
   // no such guarantee (see lightOnChanged's declaration), so it's gated on
   // the user actually having touched it this session instead.
   const bool changed = SETTINGS.frontlightBrightness != brightness || SETTINGS.frontlightWarmth != warmth ||
-                       (lightOnChanged && SETTINGS.frontlightOn != (lightOn ? 1 : 0));
+                       (lightOnChanged && SETTINGS.frontlightOn != (lightOn ? 1 : 0)) || customPresetChanged;
+  customPresetChanged = false;
   if (changed) {
     SETTINGS.frontlightBrightness = brightness;
     SETTINGS.frontlightWarmth = warmth;
@@ -129,6 +134,7 @@ void FrontlightPanelActivity::onBrightnessEvent(const fui::ActionEvent& event, v
   if (event.dragPermille < 0) return;
   self->brightness = std::max(MIN_BRIGHTNESS, percentFromPermille(event.dragPermille));
   Frontlight.setBrightness(self->brightness);
+  self->rememberCustomLevels();
   if (!self->lightOn) {
     self->lightOn = true;
     self->lightOnChanged = true;
@@ -141,6 +147,7 @@ void FrontlightPanelActivity::onWarmthEvent(const fui::ActionEvent& event, void*
   if (event.dragPermille < 0) return;
   self->warmth = percentFromPermille(event.dragPermille);
   Frontlight.setWarmth(self->warmth);
+  self->rememberCustomLevels();
 }
 
 void FrontlightPanelActivity::onToggleEvent(const fui::ActionEvent&, void* user) {
@@ -194,6 +201,18 @@ void FrontlightPanelActivity::savePreset(const int idx) {
   requestUpdate();  // the tile label shows the stored levels
 }
 
+void FrontlightPanelActivity::rememberCustomLevels() {
+  auto& custom = SETTINGS.lightPresets[CrossPointSettings::LIGHT_PRESET_CUSTOM];
+  if (custom[0] == brightness && custom[1] == warmth) return;
+  custom[0] = brightness;
+  custom[1] = warmth;
+  customPresetChanged = true;  // saved with the levels on exit
+}
+
+int FrontlightPanelActivity::tileColumns() const {
+  return renderer.getScreenWidth() > renderer.getScreenHeight() ? kTileColsLandscape : kTileCols;
+}
+
 void FrontlightPanelActivity::runTile(const int idx) {
   switch (idx) {
     case 0:  // Night mode (inverted output polarity, applied to the whole UI)
@@ -245,6 +264,7 @@ void FrontlightPanelActivity::adjustBrightness(const int delta) {
   if (next == brightness) return;
   brightness = static_cast<uint8_t>(next);
   Frontlight.setBrightness(brightness);
+  rememberCustomLevels();
   if (!lightOn) {
     lightOn = true;
     lightOnChanged = true;
@@ -260,6 +280,7 @@ void FrontlightPanelActivity::adjustWarmth(const int delta) {
   if (next == warmth) return;
   warmth = static_cast<uint8_t>(next);
   Frontlight.setWarmth(warmth);
+  rememberCustomLevels();
   requestUpdate();
 }
 
@@ -349,7 +370,8 @@ int FrontlightPanelActivity::computePanelBottom() const {
   // Tiles are touch targets, so a buttons-only board gets no grid and the
   // sheet is exactly the frontlight controls.
   const int tileCount = mappedInput.hasTouch() ? kTileCount : 0;
-  y += fui::tileGridHeight(static_cast<uint16_t>(tileCount), kTileCols, kTileHeight, kTileGap);
+  y += fui::tileGridHeight(static_cast<uint16_t>(tileCount), static_cast<uint8_t>(tileColumns()), kTileHeight,
+                           kTileGap);
   // The sheet's grabber band: content margin + grabber + air to the edge.
   // buildPanelScreen() feeds the same theme spacings into SheetProps.
   y += tokens.spaceLg + kGrabberHeight + tokens.spaceLg + tokens.spaceMd;
@@ -491,6 +513,7 @@ void FrontlightPanelActivity::buildPanelScreen(UiScreen& screen) {
     }
     gridProps.items = gridItems;
     gridProps.count = static_cast<uint16_t>(kTileCount);
+    gridProps.columns = static_cast<uint8_t>(tileColumns());
     gridProps.action = ACTION_TILE;
     gridProps.tileHeight = kTileHeight;
     gridProps.gap = kTileGap;

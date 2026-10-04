@@ -304,7 +304,14 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Opportunistically synchronize the system UTC clock while Wi-Fi is already connected.
   uint8_t clockAutoSync = 1;
   // Text rendering settings
+  // Legacy paragraph spacing enum (0=off, 1..5=0.5x..1.5x); read only to
+  // migrate into paragraphSpacingPercent.
   uint8_t extraParagraphSpacing = 0;
+  // Extra space after each paragraph, in percent of the line height.
+  static constexpr uint8_t PARAGRAPH_SPACING_MIN = 0;
+  static constexpr uint8_t PARAGRAPH_SPACING_MAX = 150;
+  static constexpr uint8_t PARAGRAPH_SPACING_STEP = 5;
+  uint8_t paragraphSpacingPercent = 0;
   // Reader-level first-line indent control, one of FirstLineIndent::Auto /
   // Indent / NoIndent (see lib/Epub/Epub/FirstLineIndent.h). The default
   // Auto keeps the book's own CSS text-indent untouched; Indent replaces it
@@ -348,7 +355,13 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // are selectable; SdCardFontSystem::ensureLoaded() snaps this to the nearest
   // available size (and persists the snap) whenever the family changes.
   uint8_t fontPointSize = DEFAULT_FONT_POINT_SIZE;
+  // Legacy line spacing enum; read only to migrate into lineSpacingPercent.
   uint8_t lineSpacing = NORMAL;
+  // Reader line height in percent of the font's natural line height.
+  static constexpr uint8_t LINE_SPACING_MIN = 70;
+  static constexpr uint8_t LINE_SPACING_MAX = 200;
+  static constexpr uint8_t LINE_SPACING_STEP = 5;
+  uint8_t lineSpacingPercent = 100;
   uint8_t paragraphAlignment = JUSTIFIED;
   // Auto-sleep timeout setting (default 10 minutes). Legacy sleepTimeout enum values are migration-only.
   uint8_t sleepTimeoutMinutes = 10;
@@ -446,11 +459,13 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // when restore-on-wake is disabled.
   uint8_t frontlightBrightness = 60;
   uint8_t frontlightWarmth = 50;
-  // Control-center light presets: {brightness, warmth} for Night, Soft and
-  // Bright. Tapping one applies it; a long press stores the current levels.
-  // Persisted manually as "lightPresets".
-  static constexpr int LIGHT_PRESET_COUNT = 3;
-  uint8_t lightPresets[LIGHT_PRESET_COUNT][2] = {{10, 90}, {35, 60}, {70, 20}};
+  // Control-center light presets: {brightness, warmth} for Night, Soft,
+  // Bright and Custom. Tapping one applies it; a long press stores the current
+  // levels. Custom also follows every manual slider/step change, so the last
+  // hand-tuned level is always one tap away. Persisted manually as "lightPresets".
+  static constexpr int LIGHT_PRESET_COUNT = 4;
+  static constexpr int LIGHT_PRESET_CUSTOM = 3;
+  uint8_t lightPresets[LIGHT_PRESET_COUNT][2] = {{10, 90}, {35, 60}, {70, 20}, {50, 50}};
   uint8_t frontlightOn = 0;
   uint8_t frontlightRestoreOnWake = 1;
   // Language setting (Language enum index). Fresh devices start in English and
@@ -554,6 +569,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
 
  public:
   float getReaderLineCompression() const;
+  // Percent equivalents of the legacy lineSpacing / extraParagraphSpacing enums.
+  uint8_t legacyLineSpacingPercent() const;
+  static uint8_t legacyParagraphSpacingPercent(uint8_t level);
   unsigned long getSleepTimeoutMs() const;
   int getRefreshFrequency() const;
   // Daily reading goal in milliseconds, derived from dailyGoalTarget.

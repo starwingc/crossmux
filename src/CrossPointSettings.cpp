@@ -405,8 +405,11 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   }
   {
     const JsonArrayConst presets = doc["lightPresets"].as<JsonArrayConst>();
-    if (presets.size() == LIGHT_PRESET_COUNT * 2) {
-      for (int i = 0; i < LIGHT_PRESET_COUNT; ++i) {
+    // Older saves hold fewer presets (before Custom was added): load what is
+    // there and keep the defaults for the rest.
+    const int stored = std::min<int>(static_cast<int>(presets.size() / 2), LIGHT_PRESET_COUNT);
+    if (presets.size() % 2 == 0) {
+      for (int i = 0; i < stored; ++i) {
         for (int j = 0; j < 2; ++j) {
           const uint8_t value = presets[i * 2 + j] | lightPresets[i][j];
           lightPresets[i][j] = std::min<uint8_t>(value, 100);
@@ -507,6 +510,19 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   // Absent means unconfigured, which is the default.
   if (doc["keyboardLayouts"].is<uint16_t>()) {
     keyboardLayouts = doc["keyboardLayouts"].as<uint16_t>();
+  }
+
+  // Spacing became percentages: carry a saved legacy step over once. Runs after
+  // the font fields above, since the old line-spacing scale depended on them.
+  if (doc["lineSpacingPercent"].isNull()) {
+    lineSpacing = clamp(doc["lineSpacing"] | static_cast<uint8_t>(NORMAL), LINE_COMPRESSION_COUNT, NORMAL);
+    lineSpacingPercent = legacyLineSpacingPercent();
+    needsResave = true;
+  }
+  if (doc["paragraphSpacingPercent"].isNull()) {
+    extraParagraphSpacing = doc["extraParagraphSpacing"] | static_cast<uint8_t>(0);
+    paragraphSpacingPercent = legacyParagraphSpacingPercent(extraParagraphSpacing);
+    needsResave = true;
   }
 
   if (needsResave) {
@@ -646,6 +662,8 @@ bool CrossPointSettings::loadFromBinaryFile() {
     applyLegacyFrontButtonLayout(*this);
   }
   applyLegacyStatusBarSettings(*this);
+  lineSpacingPercent = legacyLineSpacingPercent();
+  paragraphSpacingPercent = legacyParagraphSpacingPercent(extraParagraphSpacing);
 
   LOG_DBG("CPS", "Settings loaded from binary file");
   return true;
@@ -675,7 +693,7 @@ ReaderRenderSpec CrossPointSettings::readerRenderSpec(const uint16_t viewportWid
   spec.lineCompression = getReaderLineCompression();
   spec.characterSpacing = getCharacterSpacing();
   spec.wordSpacingPercent = wordSpacing;
-  spec.extraParagraphSpacing = extraParagraphSpacing;
+  spec.extraParagraphSpacing = paragraphSpacingPercent;
   spec.firstLineIndent = firstLineIndent;
   spec.paragraphAlignment = paragraphAlignment;
   spec.viewportWidth = viewportWidth;
@@ -688,50 +706,24 @@ ReaderRenderSpec CrossPointSettings::readerRenderSpec(const uint16_t viewportWid
 }
 
 float CrossPointSettings::getReaderLineCompression() const {
-  // SD card fonts get a wider scale than the built-ins (as in CrossPoint): their
-  // faces carry their own, often generous, natural line height, so the
-  // Bookerly-tuned 1.1/1.2 steps were visually near-indistinguishable.
-  if (sdFontFamilyName[0] != '\0') {
-    switch (lineSpacing) {
-      case TIGHT:
-        return 0.95f;
-      case NORMAL:
-      default:
-        return 1.0f;
-      case WIDE:
-        return 1.3f;
-      case EXTRA_WIDE:
-        return 1.6f;
-    }
-  }
+  const uint8_t pct = std::clamp(lineSpacingPercent, LINE_SPACING_MIN, LINE_SPACING_MAX);
+  return static_cast<float>(pct) / 100.0f;
+}
 
-  switch (fontFamily) {
-    case NOTOSERIF:
-    default:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.95f;
-        case NORMAL:
-        default:
-          return 1.0f;
-        case WIDE:
-          return 1.1f;
-        case EXTRA_WIDE:
-          return 1.2f;
-      }
-    case NOTOSANS:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.90f;
-        case NORMAL:
-        default:
-          return 0.95f;
-        case WIDE:
-          return 1.0f;
-        case EXTRA_WIDE:
-          return 1.05f;
-      }
-  }
+uint8_t CrossPointSettings::legacyParagraphSpacingPercent(const uint8_t level) {
+  static constexpr uint8_t kPercents[] = {0, 50, 75, 100, 125, 150};
+  return level < std::size(kPercents) ? kPercents[level] : 150;
+}
+
+uint8_t CrossPointSettings::legacyLineSpacingPercent() const {
+  // SD card fonts got a wider scale than the built-ins (as in CrossPoint):
+  // their faces carry their own, often generous, natural line height.
+  static constexpr uint8_t kSdFont[] = {95, 100, 130, 160};
+  static constexpr uint8_t kSerif[] = {95, 100, 110, 120};
+  static constexpr uint8_t kSans[] = {90, 95, 100, 105};
+  const uint8_t level = lineSpacing < LINE_COMPRESSION_COUNT ? lineSpacing : static_cast<uint8_t>(NORMAL);
+  if (sdFontFamilyName[0] != '\0') return kSdFont[level];
+  return fontFamily == NOTOSANS ? kSans[level] : kSerif[level];
 }
 
 unsigned long CrossPointSettings::getSleepTimeoutMs() const {

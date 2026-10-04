@@ -40,7 +40,7 @@ void relayout(PreviewLayout& layout, const GfxRenderer& renderer, int fontId, in
   style.alignment = toCssAlign(SETTINGS.paragraphAlignment);
   style.textAlignDefined = true;  // honor the user's choice; RTL auto-detected from text
 
-  ParsedText parsed(SETTINGS.extraParagraphSpacing, SETTINGS.firstLineIndent, SETTINGS.hyphenationEnabled != 0,
+  ParsedText parsed(SETTINGS.paragraphSpacingPercent, SETTINGS.firstLineIndent, SETTINGS.hyphenationEnabled != 0,
                     SETTINGS.focusReadingEnabled != 0, style);
 
   // Feed one space-separated word at a time; addWord handles NFC/CJK/RTL/focus splitting
@@ -100,11 +100,7 @@ void renderPreview(const GfxRenderer& renderer, PreviewLayout& layout, int previ
 
   const float compression = SETTINGS.getReaderLineCompression();
   const int lineAdvance = std::max(1, renderer.getLineHeight(fontId, compression));
-  constexpr float EXTRA_PARAGRAPH_SPACING_FACTORS[] = {0.0f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f};
-  const float spacingFactor = SETTINGS.extraParagraphSpacing < std::size(EXTRA_PARAGRAPH_SPACING_FACTORS)
-                                  ? EXTRA_PARAGRAPH_SPACING_FACTORS[SETTINGS.extraParagraphSpacing]
-                                  : 0.0f;
-  const int paragraphGap = static_cast<int>(lineAdvance * spacingFactor);
+  const int paragraphGap = lineAdvance * SETTINGS.paragraphSpacingPercent / 100;
   const int textTop = top + previewPadding;
   const int textBottomLimit = top + height - labelReserved;
   const int textHeight = textBottomLimit - textTop;
@@ -124,7 +120,7 @@ void renderPreview(const GfxRenderer& renderer, PreviewLayout& layout, int previ
                        .maxLines = maxLines,
                        .lineCompression = compression,
                        .alignment = SETTINGS.paragraphAlignment,
-                       .extraParagraphSpacing = SETTINGS.extraParagraphSpacing,
+                       .extraParagraphSpacing = SETTINGS.paragraphSpacingPercent,
                        .firstLineIndent = SETTINGS.firstLineIndent,
                        .characterSpacing = SETTINGS.getCharacterSpacing(),
                        .wordSpacingPercent = SETTINGS.wordSpacing,

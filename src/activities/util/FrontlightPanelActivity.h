@@ -28,6 +28,8 @@ class FrontlightPanelActivity final : public Activity, private UiAppHost {
   // touched-by-the-user flag: onExit() must not persist a mirror that never
   // reflected user intent in the first place.
   bool lightOnChanged = false;
+  // A manual slider/step change copied into the Custom preset, not yet saved.
+  bool customPresetChanged = false;
   bool draggingSlider = false;
   // The touch tile toggles SETTINGS.touchReaderControls between off and this
   // remembered mode, so a Swipe or Inverted Tap user gets their mode back
@@ -69,6 +71,8 @@ class FrontlightPanelActivity final : public Activity, private UiAppHost {
   static void onPresetEvent(const freeink::ui::ActionEvent& event, void* user);
   void applyPreset(int idx);
   void savePreset(int idx);
+  void rememberCustomLevels();
+  int tileColumns() const;
 
   void buildPanelScreen(UiScreen& screen);
   // One slider row: a caption line (name + live percentage) above

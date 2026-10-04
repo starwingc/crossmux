@@ -24,7 +24,17 @@ class MappedInputManager;
 // clears the screen: the page stays visible around the chrome.
 class ReaderToolbarUi : public UiAppHost {
  public:
-  enum class Event { None = 0, Dismiss = 1, Tool = 2, PrevChapter = 3, NextChapter = 4, Scrub = 5, Row = 6 };
+  enum class Event {
+    None = 0,
+    Dismiss = 1,
+    Tool = 2,
+    PrevChapter = 3,
+    NextChapter = 4,
+    Scrub = 5,
+    Row = 6,
+    Slider = 7,      // drag/tap on the panel slider: permille, released
+    SliderStep = 8,  // the slider's -/+ buttons: value -1 / +1
+  };
 
   struct Model {
     bool panel = false;  // false = toolbar, true = a Contents/Text/More panel
@@ -46,6 +56,13 @@ class ReaderToolbarUi : public UiAppHost {
     // Button boards keep the theme's denser list row height (as every other
     // list does there); touch boards use FreeInkUI's finger-sized rows.
     bool denseRows = false;
+    // Panel slider mode: the list is replaced by one caption + [-] bar [+] row
+    // (the Text panel's percentage settings). Positions are slider steps.
+    bool slider = false;
+    const char* sliderLabel = nullptr;
+    const char* sliderValue = nullptr;  // formatted readout, e.g. "110%"
+    int sliderPos = 0;
+    int sliderMax = 1;
   };
 
   struct Routed {
@@ -55,6 +72,7 @@ class ReaderToolbarUi : public UiAppHost {
     bool routed = false;  // the gate was open and a touch frame was routed
     int x = 0;            // touch position of the routed frame (logical px)
     int y = 0;
+    bool released = false;  // Slider: the finger lifted (commit), else a live drag frame
   };
 
   explicit ReaderToolbarUi(GfxRenderer& renderer);
@@ -83,6 +101,7 @@ class ReaderToolbarUi : public UiAppHost {
   void buildToolbar(UiScreen& screen);
   void buildPanel(UiScreen& screen);
   void buildToolRow(UiScreen& screen, freeink::ui::LayoutAnchor anchor, int16_t sideInset);
+  void buildSlider(UiScreen& screen);
 
   Model model_;
   Routed pending_;
@@ -98,5 +117,6 @@ class ReaderToolbarUi : public UiAppHost {
   // them off the stack (AGENTS.md: locals stay under 256 bytes).
   freeink::ui::ButtonProps stepProps_;
   freeink::ui::ListProps listProps_;
+  freeink::ui::SliderRowProps sliderProps_;
   freeink::ui::Rect pageIndicatorRect_{};
 };
