@@ -9,6 +9,7 @@
 #include <WiFi.h>
 #include <driver/gpio.h>
 #include <esp_sleep.h>
+#include <esp_system.h>
 #include <soc/soc_caps.h>
 
 #include <cassert>
@@ -188,10 +189,39 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
 #endif
 
 #if !FREEINK_DEVICE_WAVESHARE_EPAPER_397
+  const int8_t pagePin = pageButtonWake ? pageButtonWakePin() : -1;
+  if (pagePin >= 0) {
+    // Same as deepSleepUntilPowerButton(), with the page button added to the
+    // ext1 mask: both are active-LOW and keep their pull-up through sleep.
+    freeink::PowerManager::waitForPowerButtonRelease();
+    pinMode(pagePin, INPUT_PULLUP);
+    while (digitalRead(pagePin) == LOW) delay(50);
+    freeink::PowerManager::armPowerButtonWakeup();
+    freeink::PowerManager::armWakeOnPins((1ULL << BoardConfig::ACTIVE.input.power) | (1ULL << pagePin), true);
+    freeink::PowerManager::deepSleep();
+  }
   // Waits for the power button to be physically released (so holding it doesn't
   // immediately wake the device again), then arms the wake source and sleeps.
   freeink::PowerManager::deepSleepUntilPowerButton();
 #endif
+#endif
+}
+
+int8_t HalPowerManager::pageButtonWakePin() {
+#if SOC_PM_SUPPORT_EXT1_WAKEUP
+  const auto& input = BoardConfig::ACTIVE.input;
+  if (BoardConfig::isX4Pro() && input.power >= 0 && !input.powerActiveHigh && input.down >= 0) return input.down;
+#endif
+  return -1;
+}
+
+bool HalPowerManager::wokeByPageButton() {
+#if SOC_PM_SUPPORT_EXT1_WAKEUP
+  const int8_t pin = pageButtonWakePin();
+  return pin >= 0 && esp_reset_reason() == ESP_RST_DEEPSLEEP &&
+         esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT1 && (esp_sleep_get_ext1_wakeup_status() & (1ULL << pin));
+#else
+  return false;
 #endif
 }
 

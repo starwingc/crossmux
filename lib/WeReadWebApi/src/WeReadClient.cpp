@@ -2865,7 +2865,10 @@ bool Operation::remoteAppIdMatchesLocal() const {
 }
 
 void Operation::persistInitialProgress() {
-  const bool saved = initialProgressValid_ && initialProgressFraction_ > 0.0f
+  // The fraction spans the whole book; a range EPUB holds only some chapters,
+  // so it opens at the start of its first one instead.
+  const bool wholeBook = wholeChapterRange(firstChapterIndex_, lastChapterIndex_, chapterCount_);
+  const bool saved = wholeBook && initialProgressValid_ && initialProgressFraction_ > 0.0f
                          ? WeReadStore::saveInitialProgress(book_.bookId, initialProgressFraction_)
                          : WeReadStore::clearInitialProgress(book_.bookId);
   if (saved) return;
@@ -3955,6 +3958,7 @@ Operation::Event Operation::step(const WeReadStore::WorkCallback callback, void*
           phase_ = Phase::LoadChapter;
           return Event::None;
         case DownloadOptions::ChapterScope::SelectRange:
+        case DownloadOptions::ChapterScope::FromProgress:
           bookSession_.reset();
           phase_ = Phase::AwaitChapterRange;
           return Event::ChapterRangeReady;

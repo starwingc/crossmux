@@ -40,6 +40,7 @@ class ActivityManager {
   friend class RenderLock;
 
  protected:
+  bool sleepRequested = false;
   GfxRenderer& renderer;
   MappedInputManager& mappedInput;
   std::vector<std::unique_ptr<Activity>> stackActivities;
@@ -114,6 +115,18 @@ class ActivityManager {
   void goToBrowser();
   void goToReader(std::string path, bool allowFastInitialRefresh = false);
   void goToSleep(bool fromTimeout = false);
+  // Ask the main loop to enter deep sleep on its next pass (e.g. the control
+  // center's Sleep tile). takeSleepRequest() reads and clears the request.
+  void requestSleep() { sleepRequested = true; }
+  // Push the control center (frontlight + quick tiles) over the current screen.
+  void openControlCenter();
+  // Run a CrossPointSettings::QUICK_ACTION outside the reader (Home hold).
+  void runQuickAction(uint8_t action);
+  bool takeSleepRequest() {
+    const bool requested = sleepRequested;
+    sleepRequested = false;
+    return requested;
+  }
   void goToBoot();
   bool goToPostOtaBoot(bool allowAutoPreload);
   void goToFullScreenMessage(std::string message, EpdFontFamily::Style style = EpdFontFamily::REGULAR);

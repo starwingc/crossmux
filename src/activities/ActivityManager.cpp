@@ -147,12 +147,12 @@ void ActivityManager::loop() {
       statusBarTap = mappedInput.wasScreenTapped(tx, ty) && ty < 44;
     }
     if (currentActivity->name != "FrontlightPanel" && (statusBarTap || mappedInput.wasLightPanelGesture())) {
-      auto panel = makeUniqueNoThrow<FrontlightPanelActivity>(renderer, mappedInput);
-      if (!panel) {
-        LOG_ERR("ACT", "OOM: frontlight panel (%u bytes)", static_cast<unsigned>(sizeof(FrontlightPanelActivity)));
-        return;
-      }
-      pushActivity(std::move(panel));
+      openControlCenter();
+      return;
+    }
+    // Home-key hold outside books; the reader maps its own holds.
+    if (!currentActivity->isReaderActivity() && mappedInput.wasHomeKeyHold()) {
+      runQuickAction(SETTINGS.homeHoldAction);
       return;
     }
 
@@ -573,6 +573,41 @@ bool ActivityManager::deferBluetoothStart() const {
   return std::any_of(stackActivities.begin(), stackActivities.end(),
                      [](const auto& activity) { return activity->deferBluetoothStart(); }) ||
          (currentActivity && currentActivity->deferBluetoothStart());
+}
+
+void ActivityManager::openControlCenter() {
+  if (currentActivity && currentActivity->name == "FrontlightPanel") return;
+  auto panel = makeUniqueNoThrow<FrontlightPanelActivity>(renderer, mappedInput);
+  if (!panel) {
+    LOG_ERR("ACT", "OOM: frontlight panel (%u bytes)", static_cast<unsigned>(sizeof(FrontlightPanelActivity)));
+    return;
+  }
+  pushActivity(std::move(panel));
+}
+
+void ActivityManager::runQuickAction(const uint8_t action) {
+  switch (action) {
+    case CrossPointSettings::QA_CONTROL_CENTER:
+      openControlCenter();
+      break;
+    case CrossPointSettings::QA_SLEEP:
+      requestSleep();
+      break;
+    case CrossPointSettings::QA_REFRESH:
+      if (!handleForcedRefresh()) {
+        RenderLock lock;
+        renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+      }
+      break;
+    case CrossPointSettings::QA_ROTATE:
+      // Reading orientation, as the control center's tile cycles it.
+      SETTINGS.orientation = static_cast<uint8_t>((SETTINGS.orientation + 1) % CrossPointSettings::ORIENTATION_COUNT);
+      SETTINGS.saveToFile();
+      requestUpdate();
+      break;
+    default:
+      break;
+  }
 }
 
 bool ActivityManager::handleForcedRefresh() { return currentActivity && currentActivity->handleForcedRefresh(); }

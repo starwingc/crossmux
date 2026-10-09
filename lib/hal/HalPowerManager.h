@@ -16,6 +16,7 @@ extern HalPowerManager powerManager;  // Singleton
 class HalPowerManager {
   int normalFreq = 0;  // MHz
   bool isLowPower = false;
+  bool pageButtonWake = false;
 
   mutable int _batteryCachedPercent = 0;         // Last read battery percentage (0-100)
   mutable unsigned long _batteryLastPollMs = 0;  // Timestamp of last battery read in milliseconds
@@ -43,6 +44,12 @@ class HalPowerManager {
   // Setup wake up GPIO and enter deep sleep
   // Should be called inside main loop() to handle the currentLockMode
   void startDeepSleep(HalGPIO& gpio) const;
+  // X4 Pro: also wake on the Right (next-page) button. GPIO0, the Left button,
+  // is a boot strap pin, so it is never armed.
+  void setPageButtonWake(bool enabled) { pageButtonWake = enabled; }
+  static int8_t pageButtonWakePin();
+  // True when this boot is a deep-sleep wake caused by the page button.
+  static bool wokeByPageButton();
 
   // Only the runtime-selected X3 profiles have validated standby wake wiring.
   bool canStandbyLightSleep(const HalGPIO& gpio) const;

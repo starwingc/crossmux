@@ -987,6 +987,7 @@ void EpubReaderActivity::loop() {
   }
   const bool endOfBookMenuOpen = endOfBookMenuActive();
 
+
   // Touch long-press on the text: underline from that word (or remove the
   // underline under it).
   // Pages already laid out stay usable while a chapter build continues in the
@@ -1071,7 +1072,9 @@ void EpubReaderActivity::loop() {
         return;
       case CrossPointSettings::LP_MENU_DISABLED:
       default:
-        break;
+        // No reader-specific hold action: fall back to the global Home-hold shortcut.
+        runReaderQuickAction(SETTINGS.homeHoldAction);
+        return;
     }
   }
 
@@ -2713,6 +2716,28 @@ void EpubReaderActivity::showTextRowPopup(const int row) {
       return;
   }
   paintOverlayPopup();
+}
+
+// QUICK_ACTION inside the reader: the menu and rotation are reader-local, the
+// rest (control center, sleep, refresh) are the global shortcuts.
+void EpubReaderActivity::runReaderQuickAction(const uint8_t action) {
+  switch (action) {
+    case CrossPointSettings::QA_READER_MENU:
+      if (usesToolbarMenu() && section) {
+        pendingManualTurn = 0;
+        openOverlay(Overlay::Toolbar);
+      } else {
+        openReaderMenu();
+      }
+      break;
+    case CrossPointSettings::QA_ROTATE:
+      applyOrientation(static_cast<uint8_t>((SETTINGS.orientation + 1) % CrossPointSettings::ORIENTATION_COUNT));
+      requestUpdate();
+      break;
+    default:
+      activityManager.runQuickAction(action);
+      break;
+  }
 }
 
 bool EpubReaderActivity::handleTextSliderInput(const ReaderToolbarUi::Routed& routed) {

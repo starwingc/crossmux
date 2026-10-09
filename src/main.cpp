@@ -360,6 +360,7 @@ void enterDeepSleep(bool fromTimeout = false) {
 #endif
   LOG_DBG("MAIN", "Entering deep sleep");
 
+  powerManager.setPageButtonWake(SETTINGS.pageButtonWake != 0);
   powerManager.startDeepSleep(gpio);
 }
 
@@ -543,7 +544,9 @@ void setup() {
   // click-to-wake is a setting, and an X4 battery power-off cuts all power, so
   // only SD state survives to the next boot.
 #if !FREEINK_DEVICE_EEGO_A4
-  const bool wakeHoldVerified = wakeupReason != HalGPIO::WakeupReason::PowerButton || gpio.verifyPowerButtonWakeup();
+  // A page-button wake (X4 Pro setting) is deliberate: no power-button hold to verify.
+  const bool wakeHoldVerified = wakeupReason != HalGPIO::WakeupReason::PowerButton ||
+                                HalPowerManager::wokeByPageButton() || gpio.verifyPowerButtonWakeup();
 #endif
 
   halTiltSensor.begin();
@@ -561,7 +564,8 @@ void setup() {
     }
     const uint8_t recoveryButton =
         (BoardConfig::isX4Pro() || FREEINK_DEVICE_X4CLASSIC) ? HalGPIO::BTN_DOWN : HalGPIO::BTN_UP;
-    recoveryFirmwareMode = gpio.isPressed(recoveryButton);
+    // A page-button wake holds DOWN by design on X4 Pro: not a recovery request.
+    recoveryFirmwareMode = !HalPowerManager::wokeByPageButton() && gpio.isPressed(recoveryButton);
     if (recoveryFirmwareMode) {
       LOG_INF("MAIN", "Recovery firmware mode (%s + POWER held at boot)",
               (BoardConfig::isX4Pro() || FREEINK_DEVICE_X4CLASSIC) ? "DOWN" : "UP");
@@ -590,6 +594,7 @@ void setup() {
 
   if (gpio.hasTouch()) SETTINGS.readerMenuStyle = CrossPointSettings::READER_MENU_TOOLBAR;
   const bool settingsLoaded = SETTINGS.loadFromFile();
+  powerManager.setPageButtonWake(SETTINGS.pageButtonWake != 0);
   const auto onboardingMode =
       settingsLoaded ? LanguageSelectActivity::Mode::Upgrade : LanguageSelectActivity::Mode::Initial;
   const bool requiresOnboarding = CrossPointSettings::requiresOnboarding(SETTINGS.onboardingVersion);
@@ -889,6 +894,10 @@ void loop() {
           }
         }
         logSerial.printf("LS_END\n");
+      } else if (cmd.startsWith("TIME ")) {
+        // Set the UTC clock (and external RTC) from a host: "CMD:TIME <unix seconds>".
+        const time_t epoch = static_cast<time_t>(strtoll(cmd.substring(5).c_str(), nullptr, 10));
+        logSerial.printf(halClock.setUtcTime(epoch) ? "TIME_OK\n" : "TIME_FAIL\n");
       }
     }
   }
@@ -944,6 +953,16 @@ void loop() {
     mappedInputManager.setPowerConfirmClickFrame(true);
   }
 #endif
+
+  if (activityManager.takeSleepRequest()) {
+    LOG_DBG("MAIN", "Sleep requested by the UI");
+    // The tap that asked for sleep also repaints the panel. goToSleep() skips
+    // the sleep screen while the render task holds the lock, so let it finish.
+    const unsigned long waitStart = millis();
+    while (RenderLock::peek() && millis() - waitStart < 3000) delay(10);
+    enterDeepSleep();
+    return;
+  }
 
   const unsigned long sleepTimeoutMs = SETTINGS.getSleepTimeoutMs();
   if (sleepTimeoutMs > 0 && !activityManager.preventAutoSleep() && millis() - lastActivityTime >= sleepTimeoutMs) {

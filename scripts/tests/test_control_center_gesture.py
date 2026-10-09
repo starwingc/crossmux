@@ -34,7 +34,8 @@ struct Activity {
   void loop() { ++loops; }
 };
 struct Input {
-  bool topSwipe = true, light = false, tap = false, suppressed = false;
+  bool topSwipe = true, light = false, tap = false, suppressed = false, homeHold = false;
+  bool wasHomeKeyHold() { return homeHold; }
   bool consumeSuppressedRelease() { return suppressed; }
   bool wasHomeGesture() { return false; }
   bool hasTouch() { return true; }
@@ -43,6 +44,7 @@ struct Input {
   bool wasMenuGesture() { return topSwipe; }
 };
 struct FrontlightPanelActivity { FrontlightPanelActivity(int, Input&) {} };
+struct { unsigned char homeHoldAction = 2; } SETTINGS;
 bool failAllocation = false;
 template<class T, class... Args> std::unique_ptr<T> makeUniqueNoThrow(Args&&... args) {
   return failAllocation ? nullptr : std::make_unique<T>(std::forward<Args>(args)...);
@@ -53,12 +55,19 @@ struct ActivityManager {
   std::atomic<bool> requestedUpdate{false};
   Activity* currentActivity;
   Input mappedInput;
-  int renderer = 0, renderTaskHandle = 0, pushes = 0;
+  int renderer = 0, renderTaskHandle = 0, pushes = 0, quickAction = -1;
   bool handleMainTabInput() { return false; }
   void goHome() { assert(false); }
   void pushActivity(std::unique_ptr<FrontlightPanelActivity>) {
     ++pushes; pendingAction = PendingAction::Push;
   }
+  void openControlCenter() {
+    if (currentActivity && currentActivity->name == "FrontlightPanel") return;
+    auto panel = makeUniqueNoThrow<FrontlightPanelActivity>(renderer, mappedInput);
+    if (!panel) return;
+    pushActivity(std::move(panel));
+  }
+  void runQuickAction(unsigned char action) { quickAction = action; }
   void loop();
 };
 '''
@@ -91,6 +100,15 @@ int main() {
   check({}, {.light = true, .suppressed = true}, false, false);
   check({.exclusive = true}, {.light = true}, false, true);
   check({}, {.topSwipe = false}, false, true);
+  // Home-key hold runs the configured shortcut outside books only (the reader
+  // maps its own holds), and never also runs the page's loop.
+  for (bool reader : {false, true}) {
+    Activity page{.reader = reader};
+    ActivityManager manager{.currentActivity = &page, .mappedInput = {.topSwipe = false, .homeHold = true}};
+    manager.loop();
+    assert(manager.quickAction == (reader ? -1 : 2));
+    assert(page.loops == int(reader));
+  }
   failAllocation = true;
   check({}, {.light = true}, false, false); // OOM does not leak the gesture.
 }

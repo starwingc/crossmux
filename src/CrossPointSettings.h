@@ -333,6 +333,20 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   int8_t readingGuideLineOffset = READING_GUIDE_LINE_OFFSET_DEFAULT;
   // Short power button click behaviour
   uint8_t shortPwrBtn = IGNORE;
+  // X4 Pro: the Right/next-page button also wakes the device from sleep.
+  uint8_t pageButtonWake = 0;
+  // Home-key boards: shortcut on a capacitive Home key hold. QA_READER_MENU is
+  // reader-only (used internally, not offered in the setting).
+  enum QUICK_ACTION : uint8_t {
+    QA_OFF = 0,
+    QA_CONTROL_CENTER = 1,
+    QA_SLEEP = 2,
+    QA_REFRESH = 3,
+    QA_ROTATE = 4,
+    QA_READER_MENU = 5,
+  };
+  // Home hold outside books (and in books when the long-press menu is Disabled).
+  uint8_t homeHoldAction = QA_SLEEP;
   // EPUB reading orientation settings
   // 0 = portrait (default), 1 = landscape clockwise, 2 = inverted, 3 = landscape counter-clockwise
   uint8_t orientation = PORTRAIT;

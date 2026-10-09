@@ -142,6 +142,8 @@ class WeReadActivity final : public Activity {
   void showShelfRefreshPopup();
   void startBookDownload();
   void selectChapterRange();
+  void applyProgressChapterRange();
+  void beginChapterRangeDownload(uint32_t first, uint32_t last);
   void cancelChapterRangeSelection();
   void failChapterRangeSelection(WeReadClient::Error error);
   void handleDetailInput();

@@ -64,7 +64,10 @@ constexpr StrId kDisclaimerActions[] = {
 constexpr StrId kCacheScopeOptions[] = {
     StrId::STR_WEREAD_CACHE_WHOLE_BOOK,
     StrId::STR_WEREAD_CACHE_CHAPTER_RANGE,
+    StrId::STR_WEREAD_CACHE_FROM_PROGRESS,
 };
+// Chapters cached per online-reading batch, starting at the remote position.
+constexpr uint32_t kOnlineChapterBatch = 10;
 
 constexpr StrId kShelfRefreshOptions[] = {
     StrId::STR_NO,
@@ -925,7 +928,11 @@ void WeReadActivity::advanceJob() {
       }
       return;
     case WeReadClient::Operation::Event::ChapterRangeReady:
-      selectChapterRange();
+      if (downloadChapterScope_ == WeReadClient::DownloadOptions::ChapterScope::FromProgress) {
+        applyProgressChapterRange();
+      } else {
+        selectChapterRange();
+      }
       return;
     case WeReadClient::Operation::Event::ChapterComplete:
       state_.store(State::Downloading);
@@ -1051,8 +1058,7 @@ bool WeReadActivity::detailActionEnabled(const DetailAction action) const {
   switch (action) {
     case DetailAction::Introduction:
       return detailIntroTruncated_;
-    case DetailAction::Read:
-      return Storage.exists(WeReadStore::finalBookPath(pendingBook_).c_str());
+    case DetailAction::Read:  // cached: open it; otherwise online reading
     case DetailAction::Cache:
     case DetailAction::Browse:
     case DetailAction::Images:
@@ -1085,6 +1091,9 @@ void WeReadActivity::activateDetailSelection() {
         openBook(finalPath.c_str());
         return;
       }
+      // Online reading: cache a batch of chapters from the remote position.
+      downloadChapterScope_ = WeReadClient::DownloadOptions::ChapterScope::FromProgress;
+      startBookDownload();
       return;
     }
     case DetailAction::Cache:
@@ -1122,6 +1131,7 @@ void WeReadActivity::showCacheScopePopup() {
                       switch (scope) {
                         case WeReadClient::DownloadOptions::ChapterScope::WholeBook:
                         case WeReadClient::DownloadOptions::ChapterScope::SelectRange:
+                        case WeReadClient::DownloadOptions::ChapterScope::FromProgress:
                           downloadChapterScope_ = scope;
                           startBookDownload();
                           return;
@@ -1189,17 +1199,54 @@ void WeReadActivity::selectChapterRange() {
       failChapterRangeSelection(WeReadClient::Error::SdCard);
       return;
     }
-    if (!operation_.setChapterRange(range->first, range->last)) {
-      failChapterRangeSelection(WeReadClient::Error::Protocol);
-      return;
-    }
-    progressStage_.store(WeReadClient::Operation::ProgressStage::Chapters);
-    progressCompleted_.store(0);
-    progressTotal_.store(range->last - range->first + 1);
-    stageRenderPending_.store(true);
-    state_.store(State::Downloading);
-    requestDownloadUpdate();
+    beginChapterRangeDownload(range->first, range->last);
   });
+}
+
+void WeReadActivity::beginChapterRangeDownload(const uint32_t first, const uint32_t last) {
+  if (!operation_.setChapterRange(first, last)) {
+    failChapterRangeSelection(WeReadClient::Error::Protocol);
+    return;
+  }
+  progressStage_.store(WeReadClient::Operation::ProgressStage::Chapters);
+  progressCompleted_.store(0);
+  progressTotal_.store(last - first + 1);
+  stageRenderPending_.store(true);
+  state_.store(State::Downloading);
+  requestDownloadUpdate();
+}
+
+// Online reading: start at the chapter of the prefetched remote position (by
+// chapter id, else by book fraction; chapter 0 when the book was never read)
+// and cache the next kOnlineChapterBatch chapters.
+void WeReadActivity::applyProgressChapterRange() {
+  const uint32_t count = operation_.chapterCount();
+  if (count == 0) {
+    failChapterRangeSelection(WeReadClient::Error::Protocol);
+    return;
+  }
+  uint32_t first = 0;
+  if (operation_.hasPrefetchedProgress()) {
+    const char* uid = operation_.prefetchedChapterUid();
+    bool found = false;
+    if (uid[0]) {
+      // TocRecord is 268 bytes: keep it off the stack (AGENTS.md: locals < 256 B).
+      auto record = makeUniqueNoThrow<WeReadStore::TocRecord>();
+      for (uint32_t i = 0; record && i < count && !found; ++i) {
+        if (operation_.readChapter(i, *record) && strcmp(record->chapterUid, uid) == 0) {
+          first = i;
+          found = true;
+        }
+      }
+    }
+    if (!found) {
+      first = std::min(count - 1, static_cast<uint32_t>(operation_.prefetchedProgress() * static_cast<float>(count)));
+    }
+  }
+  const uint32_t last = std::min(count - 1, first + kOnlineChapterBatch - 1);
+  LOG_INF("WR", "online reading range: chapters %u-%u of %u", static_cast<unsigned>(first),
+          static_cast<unsigned>(last), static_cast<unsigned>(count));
+  beginChapterRangeDownload(first, last);
 }
 
 void WeReadActivity::handleDetailInput() {
@@ -2275,7 +2322,7 @@ void WeReadActivity::drawBookDetail(const Rect& content, const bool coverLoading
           case DetailAction::Cache:
             return std::string();
           case DetailAction::Read:
-            return cached ? std::string() : std::string(tr(STR_WEREAD_FUTURE_SUPPORT));
+            return std::string();
           case DetailAction::Images:
             return std::string(I18N.get(detailImagePolicy_ == WeReadStore::ImagePolicy::Embed
                                             ? StrId::STR_WEREAD_OPTION_ON
@@ -2284,7 +2331,7 @@ void WeReadActivity::drawBookDetail(const Rect& content, const bool coverLoading
         return std::string();
       },
       false,
-      [cached](const int index) { return static_cast<DetailAction>(index + 1) == DetailAction::Read && !cached; });
+      [](const int) { return false; });
 }
 
 void WeReadActivity::drawIntroduction(const Rect& content) {

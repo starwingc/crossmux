@@ -178,6 +178,8 @@ class EpubReaderActivity final : public ReaderActivity {
   // Text panel slider (line / paragraph spacing): returns true when it consumed the frame.
   bool handleTextSliderInput(const ReaderToolbarUi::Routed& routed);
   void commitTextSlider(int value);
+  // Home-key hold shortcut while reading (when the long-press menu is Disabled).
+  void runReaderQuickAction(uint8_t action);
   void paintOverlayPopup();
   // Persist the reader text settings, (re)load the selected SD font, and
   // re-paginate the current chapter so changes apply without re-opening the book.

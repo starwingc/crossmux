@@ -45,10 +45,10 @@ constexpr StrId kPresetNames[CrossPointSettings::LIGHT_PRESET_COUNT] = {
     StrId::STR_LIGHT_PRESET_NIGHT, StrId::STR_LIGHT_PRESET_SOFT, StrId::STR_LIGHT_PRESET_BRIGHT,
     StrId::STR_LIGHT_PRESET_CUSTOM};
 constexpr int16_t kTileGap = 16;
-constexpr int kTileCols = 2;
-// Landscape is only 480 px tall: the 2x2 tile grid would push the last row
-// off the screen, so the four tiles share one row there.
-constexpr int kTileColsLandscape = 4;
+constexpr int kTileCols = 3;
+// Landscape is only 480 px tall: a second tile row would push the grid off the
+// screen, so all the tiles share one row there.
+constexpr int kTileColsLandscape = 5;
 // One percent per press, on the -/+ buttons and on the physical Left/Right keys
 // alike (both repeat while held), so a level can be set exactly.
 constexpr int BRIGHTNESS_STEP = 1;
@@ -236,6 +236,10 @@ void FrontlightPanelActivity::runTile(const int idx) {
       // Only the setting changes: turning the renderer cropped the portrait-only
       // screens the panel opens over. The reader reflows on its next loop().
       requestUpdate();
+      break;
+    case 4:  // Sleep, as a long power-button press would
+      persistLightSettings();
+      activityManager.requestSleep();
       break;
     case 3:  // Touch reader controls (for reading with the palm on the glass)
       // Toggles the existing Settings -> Controls option, nothing lower-level:
@@ -499,12 +503,13 @@ void FrontlightPanelActivity::buildPanelScreen(UiScreen& screen) {
     snprintf(touchLabel, sizeof(touchLabel), "%s %s", tr(STR_TOUCH_TOGGLE),
              I18N.get(touchOn ? StrId::STR_STATE_ON : StrId::STR_STATE_OFF));
 
-    const char* labels[kTileCount] = {tr(STR_NIGHT_MODE), tr(STR_FORCE_REFRESH), orientLabel, touchLabel};
+    const char* labels[kTileCount] = {tr(STR_NIGHT_MODE), tr(STR_FORCE_REFRESH), orientLabel, touchLabel,
+                                      tr(STR_SLEEP)};
     const fui::State states[kTileCount] = {SETTINGS.screenInverted ? fui::StateChecked : fui::StateNormal,
                                            fui::StateNormal, fui::StateNormal,
                                            // Filled when touch reader controls are OFF — the non-default,
                                            // attention-worthy state.
-                                           touchOn ? fui::StateNormal : fui::StateChecked};
+                                           touchOn ? fui::StateNormal : fui::StateChecked, fui::StateNormal};
 
     for (int id = 0; id < kTileCount; ++id) {
       gridItems[id].label = labels[id];

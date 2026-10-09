@@ -33,6 +33,9 @@ struct DownloadOptions {
   enum class ChapterScope : uint8_t {
     WholeBook,
     SelectRange,
+    // Range picked by the caller from the prefetched remote reading position
+    // (online reading); pauses at AwaitChapterRange like SelectRange.
+    FromProgress,
   };
 
   WeReadStore::ImagePolicy imagePolicy = WeReadStore::ImagePolicy::Embed;
@@ -101,6 +104,10 @@ class Operation {
 
   Error error() const { return error_; }
   uint32_t chapterCount() const { return chapterCount_; }
+  // Download only: the remote reading position fetched before the TOC opened.
+  bool hasPrefetchedProgress() const { return initialProgressValid_; }
+  const char* prefetchedChapterUid() const { return progressSyncResult_.remote.chapterUid; }
+  float prefetchedProgress() const { return initialProgressFraction_; }
   ProgressStage progressStage() const { return progressStage_; }
   uint32_t progressCompleted() const { return progressCompleted_; }
   uint32_t progressTotal() const { return progressTotal_; }

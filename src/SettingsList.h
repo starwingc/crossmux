@@ -372,6 +372,12 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
             {StrId::STR_IGNORE, StrId::STR_SLEEP, StrId::STR_PAGE_TURN, StrId::STR_FORCE_REFRESH, StrId::STR_FOOTNOTES},
             "shortPwrBtn", StrId::STR_CAT_CONTROLS),
 #endif
+        SettingInfo::Enum(StrId::STR_HOME_HOLD_ACTION, &CrossPointSettings::homeHoldAction,
+                          {StrId::STR_STATE_OFF, StrId::STR_CONTROL_CENTER, StrId::STR_SLEEP, StrId::STR_FORCE_REFRESH,
+                           StrId::STR_LONG_PRESS_BEHAVIOR_ORIENTATION},
+                          "homeHoldAction", StrId::STR_CAT_CONTROLS),
+        SettingInfo::Toggle(StrId::STR_PAGE_BUTTON_WAKE, &CrossPointSettings::pageButtonWake, "pageButtonWake",
+                            StrId::STR_CAT_CONTROLS),
         SettingInfo::Toggle(StrId::STR_PWR_BTN_FOOTNOTE_BACK, &CrossPointSettings::pwrBtnFootnoteBack,
                             "pwrBtnFootnoteBack", StrId::STR_CAT_CONTROLS),
         SettingInfo::Toggle(StrId::STR_BACK_SHORT_TO_FILE_BROWSER, &CrossPointSettings::backShortToFileBrowser,
@@ -538,6 +544,8 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
 inline bool isSettingAvailableOnBoard(const SettingInfo& setting) {
   if (!BoardConfig::hasTouch() && setting.nameId == StrId::STR_TOUCH_READER_CONTROLS) return false;
   if (!BoardConfig::hasHomeKey() && setting.nameId == StrId::STR_SHOW_READER_MENU) return false;
+  if (!BoardConfig::isX4Pro() && setting.nameId == StrId::STR_PAGE_BUTTON_WAKE) return false;
+  if (!BoardConfig::hasHomeKey() && setting.nameId == StrId::STR_HOME_HOLD_ACTION) return false;
   const bool frontlightSetting = setting.valuePtr == &CrossPointSettings::frontlightBrightness ||
                                  setting.valuePtr == &CrossPointSettings::frontlightOn ||
                                  setting.valuePtr == &CrossPointSettings::frontlightRestoreOnWake
