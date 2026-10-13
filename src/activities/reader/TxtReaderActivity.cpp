@@ -797,7 +797,10 @@ void TxtReaderActivity::renderPage() {
   const auto t0 = millis();
   auto* fcm = renderer.getFontCacheManager();
 
-  auto renderLines = [this]() { drawLines(currentPageLines); };
+  auto renderLines = [this]() {
+    GfxRenderer::BwGlyphWeightScope bwWeight(renderer, SETTINGS.bwGlyphMinCoverage());
+    drawLines(currentPageLines);
+  };
 
   // Font prewarm: scan pass accumulates text, then prewarm, then real render
   auto scope = fcm->createPrewarmScope();

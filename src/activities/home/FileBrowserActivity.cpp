@@ -162,6 +162,7 @@ void FileBrowserActivity::rebuildRowItems() {
 
 bool FileBrowserActivity::usesIconLayout() const {
   return mode == Mode::Books && browserState == BrowserState::Browsing && UITheme::getInstance().hasMainTabs() &&
+         SETTINGS.uiTheme != CrossPointSettings::UI_THEME::PIXEL &&
          InxGridGeometry::layoutFrom(SETTINGS.inxLibraryLayout) == InxItemLayout::Icons;
 }
 

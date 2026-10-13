@@ -150,7 +150,7 @@ void KeyboardEntryActivity::onExit() { Activity::onExit(); }
 const fui::KeyboardLayout& KeyboardEntryActivity::currentLayout() const {
   const auto builtin = [&](bool symbolLayer, bool numberRow, bool langKey) -> const fui::KeyboardLayout& {
 #ifdef FREEINK_UI_THEME_LAYOUT_POLICY
-    const auto geometry = SETTINGS.uiTheme == CrossPointSettings::UI_THEME::INX ? fui::KeyboardGeometry::Classic
+    const auto geometry = CrossPointSettings::usesInxShell(SETTINGS.uiTheme) ? fui::KeyboardGeometry::Classic
                                                                                 : fui::KeyboardGeometry::Separated;
     return fui::builtinKeyboardLayout(layoutId, shifted, symbolLayer, numberRow, langKey, geometry);
 #else
@@ -1020,7 +1020,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   props.gap = static_cast<int16_t>(metrics.keyboardKeySpacing);
   props.padding = fui::Insets{0, 0, 0, 0};
 #ifdef FREEINK_UI_THEME_LAYOUT_POLICY
-  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::INX) {
+  if (CrossPointSettings::usesInxShell(SETTINGS.uiTheme)) {
     props.geometry = fui::KeyboardGeometry::Classic;
     props.rowGap = props.gap;
     props.keyRadius = 0;

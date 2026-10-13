@@ -18,7 +18,7 @@ int16_t scrollInset(const Profile& profile, const uint8_t side) {
 // Keep INX's original advance-based alignment, including one-digit controls.
 inline void applyUiTextAlignment(freeink::ui::GfxRendererTarget& target) {
 #ifdef FREEINK_UI_THEME_LAYOUT_POLICY
-  target.setTextCentering(SETTINGS.uiTheme == CrossPointSettings::UI_THEME::INX
+  target.setTextCentering(CrossPointSettings::usesInxShell(SETTINGS.uiTheme)
                               ? freeink::ui::TextCentering::Advance
                               : freeink::ui::TextCentering::InkBounds);
 #else
@@ -37,7 +37,7 @@ inline freeink::ui::ThemeTokens uiThemeTokens(const freeink::ui::GfxRendererTarg
 
   fui::ThemeTokens tokens = fui::themeTokensForLineHeight(target.lineHeight(fui::GfxRendererTarget::FONT_BODY));
 #ifdef FREEINK_UI_THEME_LAYOUT_POLICY
-  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::INX) {
+  if (CrossPointSettings::usesInxShell(SETTINGS.uiTheme)) {
     tokens.listLayoutPolicy = fui::ListLayoutPolicy::ThemeRow;
   }
 #endif
@@ -79,6 +79,8 @@ inline freeink::ui::ThemeTokens uiThemeTokens(const freeink::ui::GfxRendererTarg
   tokens.listEmphasizedText = tokens.titleText;
   tokens.listEmphasizedText.bold = true;
   tokens.listValueText = tokens.bodyText;
+  // Pixel: taller fixed rows (the shell's line-height rows are too tight for its framed selection).
+  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::PIXEL) tokens.rowHeight = static_cast<int16_t>(metrics.listRowHeight);
   if (!UITheme::getInstance().showSelectionCursor()) SelectionCursorPolicy::hideFreeInkListFocus(tokens);
   return tokens;
 }

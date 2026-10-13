@@ -16,6 +16,7 @@ enum PageElementTag : uint8_t {
   TAG_PageLine = 1,
   TAG_PageImage = 2,
   TAG_PageHorizontalRule = 3,
+  TAG_PageChapterTitle = 4,
 };
 
 // represents something that has been added to a page
@@ -72,6 +73,37 @@ class PageHorizontalRule final : public PageElement {
   bool serialize(HalFile& file) override;
   PageElementTag getTag() const override { return TAG_PageHorizontalRule; }
   static std::unique_ptr<PageHorizontalRule> deserialize(HalFile& file);
+};
+
+// Reader-drawn chapter title (CrossPointSettings::CHAPTER_TITLE_STYLE). Holds up to two
+// title parts (e.g. "第1章" / "边陲"); styles that want one line join them with a space.
+class PageChapterTitle final : public PageElement {
+ public:
+  enum Style : uint8_t { STYLE_PLAIN = 1, STYLE_BANNER = 2, STYLE_LEFT_RULE = 3, STYLE_ORNAMENT = 4 };
+  static constexpr uint32_t MAX_PART_BYTES = 192;
+
+  PageChapterTitle(uint8_t style, uint16_t width, uint16_t height, std::string first, std::string second,
+                   const int16_t xPos, const int16_t yPos)
+      : PageElement(xPos, yPos),
+        style(style),
+        width(width),
+        height(height),
+        first(std::move(first)),
+        second(std::move(second)) {}
+
+  // Block height for `style` in half body lines.
+  static int heightInHalfLines(uint8_t style);
+  void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset) override;
+  bool serialize(HalFile& file) override;
+  PageElementTag getTag() const override { return TAG_PageChapterTitle; }
+  static std::unique_ptr<PageChapterTitle> deserialize(HalFile& file);
+
+ private:
+  uint8_t style;
+  uint16_t width;
+  uint16_t height;
+  std::string first;
+  std::string second;
 };
 
 class Page {

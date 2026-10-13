@@ -45,7 +45,11 @@ constexpr StrId STYLE_ROW_NAME_IDS[] = {StrId::STR_FOCUS_READING,
                                         StrId::STR_HYPHENATION,
                                         StrId::STR_EMBEDDED_STYLE,
                                         StrId::STR_FAKE_BOLD,
-                                        StrId::STR_TEXT_AA};
+                                        StrId::STR_TEXT_AA,
+                                        StrId::STR_BW_TEXT_WEIGHT,
+                                        StrId::STR_CJK_PUNCT_WIDTH,
+                                        StrId::STR_CHAPTER_TITLE_STYLE,
+                                        StrId::STR_PIXEL_PRESET};
 
 constexpr StrId FIRST_LINE_INDENT_IDS[] = {StrId::STR_FIRST_LINE_INDENT_AUTO, StrId::STR_FIRST_LINE_INDENT_INDENT,
                                            StrId::STR_FIRST_LINE_INDENT_NO_INDENT};
@@ -53,6 +57,15 @@ static_assert(std::size(FIRST_LINE_INDENT_IDS) == 3);
 constexpr StrId SYNTHETIC_BOLD_IDS[] = {StrId::STR_STATE_OFF, StrId::STR_FAKE_BOLD_LIGHT, StrId::STR_FAKE_BOLD_STANDARD,
                                         StrId::STR_FAKE_BOLD_HEAVY};
 static_assert(std::size(SYNTHETIC_BOLD_IDS) == CrossPointSettings::SYNTHETIC_BOLD_COUNT);
+constexpr StrId BW_TEXT_WEIGHT_IDS[] = {StrId::STR_BW_WEIGHT_THIN, StrId::STR_BW_WEIGHT_STANDARD,
+                                        StrId::STR_BW_WEIGHT_BOLD};
+static_assert(std::size(BW_TEXT_WEIGHT_IDS) == CrossPointSettings::BW_TEXT_WEIGHT_COUNT);
+constexpr StrId CJK_PUNCT_WIDTH_IDS[] = {StrId::STR_CJK_PUNCT_COMPACT, StrId::STR_CJK_PUNCT_STANDARD};
+static_assert(std::size(CJK_PUNCT_WIDTH_IDS) == CrossPointSettings::CJK_PUNCT_WIDTH_COUNT);
+constexpr StrId CHAPTER_TITLE_IDS[] = {StrId::STR_CHAPTER_TITLE_BOOK, StrId::STR_CHAPTER_TITLE_PLAIN,
+                                       StrId::STR_CHAPTER_TITLE_BANNER, StrId::STR_CHAPTER_TITLE_LEFT_RULE,
+                                       StrId::STR_CHAPTER_TITLE_ORNAMENT};
+static_assert(std::size(CHAPTER_TITLE_IDS) == CrossPointSettings::CHAPTER_TITLE_STYLE_COUNT);
 constexpr StrId WORD_SPACING_IDS[] = {StrId::STR_SPACING_50_PERCENT,  StrId::STR_SPACING_75_PERCENT,
                                       StrId::STR_SPACING_100_PERCENT, StrId::STR_SPACING_125_PERCENT,
                                       StrId::STR_SPACING_150_PERCENT, StrId::STR_SPACING_175_PERCENT,
@@ -398,6 +411,32 @@ void TextSettingsActivity::applyFamily(int listIndex) {
   // both have to be rebuilt.
   rebuildSizeList();
   tabNavs[static_cast<int>(Tab::Size)].selected = currentSizeIndex_ + 1;
+}
+
+// CrossLink Pixel's reading look, measured against its screenshots: Source Han Sans
+// DemiLight at 14 pt in black and white, 36 px lines, full-width CJK quotes and the
+// ornament chapter title.
+void TextSettingsActivity::applyPixelPreset() {
+  SETTINGS.fontPointSize = 14;
+  for (int i = 0; i < static_cast<int>(fonts_.size()); i++) {
+    if (!fonts_[i].isBuiltin && fonts_[i].name == "NotoSCDemiLight") {
+      applyFamily(i);
+      break;
+    }
+  }
+  SETTINGS.lineSpacingPercent = 86;
+  SETTINGS.screenMargin = 15;
+  SETTINGS.characterSpacing = CrossPointSettings::CHARACTER_SPACING_OFFSET + 1;
+  SETTINGS.textAntiAliasing = 0;
+  SETTINGS.fakeBold = CrossPointSettings::SYNTHETIC_BOLD_OFF;
+  SETTINGS.bwTextWeight = CrossPointSettings::BW_WEIGHT_STANDARD;
+  SETTINGS.cjkPunctWidth = CrossPointSettings::CJK_PUNCT_STANDARD;
+  SETTINGS.chapterTitleStyle = CrossPointSettings::CHAPTER_TITLE_ORNAMENT;
+  SETTINGS.firstLineIndent = FirstLineIndent::Indent;
+  SETTINGS.paragraphAlignment = CrossPointSettings::JUSTIFIED;
+  SETTINGS.statusBarClock = CrossPointSettings::STATUS_BAR_CLOCK_LEFT;
+  SETTINGS.saveToFile();
+  requestUpdate();
 }
 
 void TextSettingsActivity::activateRow(int row) {
@@ -766,6 +805,33 @@ void TextSettingsActivity::confirmStyleRow(int row) {
     case StyleRow::AntiAliasing:
       SETTINGS.textAntiAliasing = !SETTINGS.textAntiAliasing;
       break;
+    case StyleRow::TextWeight:
+      optionPopup_.show(StrId::STR_BW_TEXT_WEIGHT, BW_TEXT_WEIGHT_IDS, static_cast<int>(std::size(BW_TEXT_WEIGHT_IDS)),
+                        SETTINGS.bwTextWeight, [](int idx) {
+                          SETTINGS.bwTextWeight = static_cast<uint8_t>(idx);
+                          SETTINGS.saveToFile();
+                        });
+      requestUpdate();
+      return;
+    case StyleRow::PunctWidth:
+      optionPopup_.show(StrId::STR_CJK_PUNCT_WIDTH, CJK_PUNCT_WIDTH_IDS,
+                        static_cast<int>(std::size(CJK_PUNCT_WIDTH_IDS)), SETTINGS.cjkPunctWidth, [](int idx) {
+                          SETTINGS.cjkPunctWidth = static_cast<uint8_t>(idx);
+                          SETTINGS.saveToFile();
+                        });
+      requestUpdate();
+      return;
+    case StyleRow::PixelPreset:
+      applyPixelPreset();
+      return;
+    case StyleRow::ChapterTitle:
+      optionPopup_.show(StrId::STR_CHAPTER_TITLE_STYLE, CHAPTER_TITLE_IDS, static_cast<int>(std::size(CHAPTER_TITLE_IDS)),
+                        SETTINGS.chapterTitleStyle, [](int idx) {
+                          SETTINGS.chapterTitleStyle = static_cast<uint8_t>(idx);
+                          SETTINGS.saveToFile();
+                        });
+      requestUpdate();
+      return;
 
     default:
       return;
@@ -797,6 +863,21 @@ std::string TextSettingsActivity::styleValueText(int row) const {
     }
     case StyleRow::AntiAliasing:
       return SETTINGS.textAntiAliasing ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
+    case StyleRow::TextWeight: {
+      const uint8_t value = SETTINGS.bwTextWeight;
+      return value < std::size(BW_TEXT_WEIGHT_IDS) ? I18N.get(BW_TEXT_WEIGHT_IDS[value]) : tr(STR_BW_WEIGHT_BOLD);
+    }
+    case StyleRow::PunctWidth: {
+      const uint8_t value = SETTINGS.cjkPunctWidth;
+      return value < std::size(CJK_PUNCT_WIDTH_IDS) ? I18N.get(CJK_PUNCT_WIDTH_IDS[value])
+                                                    : tr(STR_CJK_PUNCT_COMPACT);
+    }
+    case StyleRow::PixelPreset:
+      return tr(STR_PIXEL_PRESET_APPLY);
+    case StyleRow::ChapterTitle: {
+      const uint8_t value = SETTINGS.chapterTitleStyle;
+      return value < std::size(CHAPTER_TITLE_IDS) ? I18N.get(CHAPTER_TITLE_IDS[value]) : tr(STR_CHAPTER_TITLE_BOOK);
+    }
 
     default:
       return "";
@@ -810,6 +891,7 @@ bool TextSettingsActivity::focusedRowHasNoPreview() const {
 }
 
 TextSettingsActivity::StyleRow TextSettingsActivity::styleRowAt(int visibleIndex) const {
+  static_assert(std::size(STYLE_ROW_NAME_IDS) == static_cast<size_t>(StyleRow::Count), "every style row needs a name");
   if (visibleIndex < 0 || visibleIndex >= styleRowCount()) return StyleRow::Count;
   if (!SETTINGS.readingGuideLineEnabled && visibleIndex >= static_cast<int>(StyleRow::ReadingGuideLineStyle)) {
     visibleIndex += HIDDEN_GUIDE_ROW_COUNT;

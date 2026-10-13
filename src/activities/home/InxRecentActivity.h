@@ -1,5 +1,7 @@
 #pragma once
 
+#include "components/themes/pixel/PixelRoom.h"
+
 #include <array>
 #include <cstdint>
 #include <string>
@@ -36,6 +38,13 @@ class InxRecentActivity final : public Activity {
   static constexpr size_t COVER_CACHE_MAX_ALLOC_RESERVE = 8 * 1024;
 #endif
 
+  // Pixel theme: the study room replaces the recent-books layouts.
+  int roomSelected = 5;  // the open book on the desk
+  bool catCardOpen = false;
+  PixelRoom::CatState catState;
+  void refreshCatState();
+  void activateRoomSpot(int index);
+  bool handleRoomInput();
   const std::vector<RecentBook>* books = nullptr;
   std::array<const ReadingBookStats*, RecentBooksStore::MAX_RECENT_BOOKS> bookStats{};
   std::array<CoverCacheState, RecentBooksStore::MAX_RECENT_BOOKS> targetCoverStates{};

@@ -12,6 +12,7 @@
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
 #include "components/icons/inx_apps.h"
+#include "components/themes/pixel/PixelAppIcons.h"
 #include "fontIds.h"
 
 namespace fui = freeink::ui;
@@ -220,6 +221,33 @@ bool AppsMenuActivity::handleCustomInput() {
   return false;
 }
 
+// Pixel theme: a framed, drop-shadowed tile with a 16x16 pixel-art icon (x3).
+void AppsMenuActivity::drawPixelTile(const Rect& cell, const int appIndex, const bool selected) const {
+  const Rect tile{cell.x + 10, cell.y + 6, cell.width - 24, cell.height - 18};
+  renderer.fillRect(tile.x + 4, tile.y + 4, tile.width, tile.height, true);
+  renderer.fillRoundedRect(tile.x, tile.y, tile.width, tile.height, 8, selected ? Color::Black : Color::White);
+  renderer.drawRoundedRect(tile.x, tile.y, tile.width, tile.height, 2, 8, true);
+  constexpr int scale = 3;
+  constexpr int artSize = PixelAppIcons::kSize * scale;
+  const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+  const int artX = tile.x + (tile.width - artSize) / 2;
+  const int artY = tile.y + std::max(6, (tile.height - artSize - lineHeight - 8) / 2);
+  if (const auto art = PixelAppIcons::forIcon(kAppEntries[appIndex].icon)) {
+    for (int r = 0; r < PixelAppIcons::kSize; ++r)
+      for (int c = 0; c < PixelAppIcons::kSize; ++c)
+        if (art[r][c] == '#') renderer.fillRect(artX + c * scale, artY + r * scale, scale, scale, !selected);
+  } else {
+    constexpr int inxScale = 2;
+    const int inxSize = InxAppIcons::size * inxScale;
+    InxAppIcons::draw(renderer, kAppEntries[appIndex].icon, tile.x + (tile.width - inxSize) / 2,
+                      artY + (artSize - inxSize) / 2, inxScale, selected);
+  }
+  const std::string label = renderer.truncatedText(UI_10_FONT_ID, I18N.get(kAppEntries[appIndex].titleId),
+                                                   std::max(1, tile.width - 8));
+  renderer.drawText(UI_10_FONT_ID, tile.x + (tile.width - renderer.getTextWidth(UI_10_FONT_ID, label.c_str())) / 2,
+                    artY + artSize + 8, label.c_str(), !selected);
+}
+
 void AppsMenuActivity::drawIconGrid(const Rect& rect, const int visibleCount, const bool showSelection) const {
   const int start = InxGridGeometry::pageStart(nav.selected, visibleCount);
   const int cellWidth = rect.width / InxGridGeometry::columns;
@@ -236,6 +264,10 @@ void AppsMenuActivity::drawIconGrid(const Rect& rect, const int visibleCount, co
     const int row = slot / InxGridGeometry::columns;
     const Rect cell{rect.x + column * cellWidth + 4, rect.y + row * cellHeight + 4, cellWidth - 8, cellHeight - 8};
     const bool isSelected = showSelection && visibleIndex == nav.selected;
+    if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::PIXEL) {
+      drawPixelTile(cell, appIndex, isSelected);
+      continue;
+    }
     if (isSelected) renderer.fillRect(cell.x, cell.y, cell.width, cell.height, true);
 
     const int iconX = cell.x + (cell.width - iconSize) / 2;

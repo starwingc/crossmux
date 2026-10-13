@@ -1,5 +1,9 @@
 #include "SleepActivity.h"
 
+#include "ReadingStatsStore.h"
+#include "components/themes/pixel/PixelRoom.h"
+#include "util/BookGenre.h"
+
 #include <Epub.h>
 #include <Epub/converters/PngToFramebufferConverter.h>
 #include <FontCacheManager.h>
@@ -533,6 +537,8 @@ void SleepActivity::onEnter() {
   switch (SETTINGS.sleepScreen) {
     case (CrossPointSettings::SLEEP_SCREEN_MODE::BLANK):
       return renderBlankSleepScreen();
+    case (CrossPointSettings::SLEEP_SCREEN_MODE::STUDY):
+      return renderStudySleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM):
       return renderCustomSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::COVER):
@@ -591,6 +597,18 @@ void SleepActivity::renderCustomSleepScreen() const {
 // firmware's only clean refresh in normal operation is the single-pass 0xD7
 // sequence, used once for the sleep image. It never runs the multi-flash GC
 // waveform (0xF7) that FULL_REFRESH selects (#2471's blinking complaint).
+void SleepActivity::renderStudySleepScreen() const {
+  PixelRoom::CatState cat;
+  cat.streakDays = READING_STATS.getCurrentStreakDays();
+  cat.level = PixelRoom::levelForStreak(cat.streakDays);
+  cat.genre = BookGenre::dominantRecentGenre();
+  cat.todayMinutes = static_cast<uint32_t>(READING_STATS.getTodayReadingMs() / 60000);
+  cat.goalMinutes = static_cast<uint32_t>(SETTINGS.getDailyGoalMs() / 60000);
+  renderer.clearScreen();
+  PixelRoom::drawSleepScene(renderer, cat);
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+}
+
 void SleepActivity::renderDefaultSleepScreen() const {
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();

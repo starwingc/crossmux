@@ -1,5 +1,7 @@
 #include "InxRecentActivity.h"
 
+#include "util/BookGenre.h"
+
 #include <Bitmap.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -369,7 +371,90 @@ int InxRecentActivity::indexFromPoint(const int x, const int y) const {
   return index < static_cast<int>(books->size()) ? index : -1;
 }
 
+void InxRecentActivity::refreshCatState() {
+  catState.streakDays = READING_STATS.getCurrentStreakDays();
+  catState.level = PixelRoom::levelForStreak(catState.streakDays);
+  catState.genre = BookGenre::dominantRecentGenre();
+  catState.todayMinutes = static_cast<uint32_t>(READING_STATS.getTodayReadingMs() / 60000);
+  catState.goalMinutes = static_cast<uint32_t>(SETTINGS.getDailyGoalMs() / 60000);
+}
+
+void InxRecentActivity::activateRoomSpot(const int index) {
+  using PixelRoom::Action;
+  switch (PixelRoom::spot(index).action) {
+    case Action::Sleep:
+      activityManager.goToSleep();
+      return;
+    case Action::Stats:
+      activityManager.goToReadingStats();
+      return;
+    case Action::Recent:
+      activityManager.goToRecentBooks();
+      return;
+    case Action::Library:
+      activityManager.goToFileBrowser();
+      return;
+    case Action::Settings:
+      activityManager.goToSettings();
+      return;
+    case Action::Read:
+      if (books && !books->empty()) onSelectBook((*books)[0].path);
+      return;
+    case Action::Transfer:
+      activityManager.goToFileTransfer();
+      return;
+    case Action::Apps:
+      activityManager.goToApps();
+      return;
+    case Action::Cat:
+      catCardOpen = true;
+      requestUpdate();
+      return;
+  }
+}
+
+bool InxRecentActivity::handleRoomInput() {
+  int x = 0;
+  int y = 0;
+  if (catCardOpen) {
+    if (mappedInput.wasScreenTapped(x, y) || mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
+        mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      catCardOpen = false;
+      requestUpdate();
+    }
+    return true;
+  }
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    activateRoomSpot(roomSelected);
+    return true;
+  }
+  if (mappedInput.wasScreenTapped(x, y)) {
+    const int hit = PixelRoom::spotAt(x, y);
+    if (hit >= 0) {
+      roomSelected = hit;
+      activateRoomSpot(hit);
+    }
+    return true;
+  }
+  const int count = PixelRoom::spotCount();
+  if (mappedInput.wasReleased(MappedInputManager::Button::NavNext)) {
+    roomSelected = (roomSelected + 1) % count;
+    requestUpdate();
+    return true;
+  }
+  if (mappedInput.wasReleased(MappedInputManager::Button::NavPrevious)) {
+    roomSelected = (roomSelected + count - 1) % count;
+    requestUpdate();
+    return true;
+  }
+  return false;
+}
+
 void InxRecentActivity::loop() {
+  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::PIXEL) {
+    handleRoomInput();
+    return;
+  }
   if (!books || books->empty()) return;
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
@@ -555,6 +640,13 @@ void InxRecentActivity::drawCover(const Rect& content) {
 
 void InxRecentActivity::render(RenderLock&&) {
   renderer.clearScreen();
+  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::PIXEL) {
+    refreshCatState();
+    PixelRoom::draw(renderer, roomSelected, catState);
+    if (catCardOpen) PixelRoom::drawCatCard(renderer, catState);
+    renderer.displayBuffer();
+    return;
+  }
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int width = renderer.getScreenWidth();
   drawPageHeader(Rect{0, metrics.topPadding, width, metrics.headerHeight}, tr(STR_MENU_RECENT_BOOKS));

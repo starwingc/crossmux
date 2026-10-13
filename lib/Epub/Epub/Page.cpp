@@ -126,6 +126,130 @@ void PageHorizontalRule::render(GfxRenderer& renderer, const int fontId, const i
   renderer.drawLine(xPos + xOffset, yPos + yOffset, xPos + xOffset + width - 1, yPos + yOffset, thickness, true);
 }
 
+int PageChapterTitle::heightInHalfLines(const uint8_t style) {
+  switch (style) {
+    case STYLE_BANNER:
+      return 8;
+    case STYLE_LEFT_RULE:
+      return 10;
+    case STYLE_ORNAMENT:
+      return 11;
+    default:
+      return 4;
+  }
+}
+
+namespace {
+// Pixel-art scroll ribbon around a one-line title: a framed band with folded,
+// notched tails on both sides.
+void drawBanner(const GfxRenderer& renderer, const int cx, const int top, const int textWidth, const int bandHeight) {
+  const int bandW = textWidth + 48;
+  const int x0 = cx - bandW / 2;
+  const int x1 = x0 + bandW - 1;
+  const int y0 = top;
+  const int y1 = top + bandHeight - 1;
+  renderer.drawRect(x0, y0, bandW, bandHeight, 2, true);
+  renderer.drawLine(x0 + 4, y0 + 4, x1 - 4, y0 + 4, true);  // inner rule
+  renderer.drawLine(x0 + 4, y1 - 4, x1 - 4, y1 - 4, true);
+  constexpr int tail = 22;
+  const int tailTop = y0 + 8;
+  const int tailBottom = y1 + 8;
+  const int notchY = (tailTop + tailBottom) / 2;
+  for (int side = -1; side <= 1; side += 2) {
+    const int edge = side < 0 ? x0 : x1;
+    const int outer = edge + side * tail;
+    renderer.drawLine(edge, tailTop, outer, tailTop, 2, true);
+    renderer.drawLine(edge, tailBottom, outer, tailBottom, 2, true);
+    renderer.drawLine(outer, tailTop, outer - side * 8, notchY, 2, true);
+    renderer.drawLine(outer - side * 8, notchY, outer, tailBottom, 2, true);
+    renderer.drawLine(edge, y1, edge + side * 6, tailBottom, 2, true);  // fold
+  }
+}
+
+// "— ◆ —" ornament centred on cx.
+void drawOrnament(const GfxRenderer& renderer, const int cx, const int cy) {
+  renderer.drawLine(cx - 30, cy, cx - 12, cy, 2, true);
+  renderer.drawLine(cx + 12, cy, cx + 30, cy, 2, true);
+  for (int d = 0; d <= 5; d++) renderer.drawLine(cx - (5 - d), cy - d, cx + (5 - d), cy - d, true);
+  for (int d = 1; d <= 5; d++) renderer.drawLine(cx - (5 - d), cy + d, cx + (5 - d), cy + d, true);
+}
+}  // namespace
+
+void PageChapterTitle::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset) {
+  const int x = xPos + xOffset;
+  const int y = yPos + yOffset;
+  const int lh = renderer.getLineHeight(fontId);
+  const int cx = x + width / 2;
+  const std::string joined = second.empty() ? first : first + " " + second;
+  switch (style) {
+    case STYLE_BANNER: {
+      const int tw = renderer.getTextWidth(fontId, joined.c_str());
+      const int bandH = lh + 12;
+      const int bandTop = y + lh;
+      drawBanner(renderer, cx, bandTop, tw, bandH);
+      renderer.drawText(fontId, cx - tw / 2, bandTop + 6, joined.c_str());
+      break;
+    }
+    case STYLE_LEFT_RULE: {
+      const int top = y + lh / 2;
+      renderer.fillRect(x, top, 3, lh * 3, true);
+      renderer.drawText(fontId, x + 16, top, first.c_str());
+      if (!second.empty()) renderer.drawText(fontId, x + 16, top + lh * 2, second.c_str());
+      break;
+    }
+    case STYLE_ORNAMENT: {
+      const std::string& line1 = first;
+      const int w1 = renderer.getTextWidth(fontId, line1.c_str());
+      renderer.drawText(fontId, cx - w1 / 2, y + lh / 2, line1.c_str());
+      int nextTop = y + lh / 2 + lh;
+      if (!second.empty()) {
+        const int w2 = renderer.getTextWidth(fontId, second.c_str());
+        nextTop = y + lh / 2 + lh * 2;
+        renderer.drawText(fontId, cx - w2 / 2, nextTop, second.c_str());
+        nextTop += lh;
+      }
+      drawOrnament(renderer, cx, nextTop + 12);
+      break;
+    }
+    default: {
+      const int tw = renderer.getTextWidth(fontId, joined.c_str());
+      renderer.drawText(fontId, cx - tw / 2, y, joined.c_str());
+      break;
+    }
+  }
+}
+
+bool PageChapterTitle::serialize(HalFile& file) {
+  serialization::writePod(file, xPos);
+  serialization::writePod(file, yPos);
+  serialization::writePod(file, style);
+  serialization::writePod(file, width);
+  serialization::writePod(file, height);
+  serialization::writeString(file, first);
+  serialization::writeString(file, second);
+  return true;
+}
+
+std::unique_ptr<PageChapterTitle> PageChapterTitle::deserialize(HalFile& file) {
+  int16_t xPos = 0;
+  int16_t yPos = 0;
+  uint8_t style = 0;
+  uint16_t width = 0;
+  uint16_t height = 0;
+  std::string first;
+  std::string second;
+  if (!serialization::readPod(file, xPos) || !serialization::readPod(file, yPos) ||
+      !serialization::readPod(file, style) || !serialization::readPod(file, width) ||
+      !serialization::readPod(file, height) || !serialization::readString(file, first, MAX_PART_BYTES) ||
+      !serialization::readString(file, second, MAX_PART_BYTES)) {
+    return nullptr;
+  }
+  auto title = makeUniqueNoThrow<PageChapterTitle>(style, width, height, std::move(first), std::move(second), xPos,
+                                                   yPos);
+  if (!title) LOG_ERR("PGE", "Deserialization failed: could not allocate PageChapterTitle");
+  return title;
+}
+
 bool PageHorizontalRule::serialize(HalFile& file) {
   serialization::writePod(file, xPos);
   serialization::writePod(file, yPos);
@@ -277,6 +401,12 @@ std::unique_ptr<Page> Page::deserialize(HalFile& file, const bool collectTouchLi
         return nullptr;
       }
       page->elements.push_back(std::move(rule));
+    } else if (tag == TAG_PageChapterTitle) {
+      auto title = PageChapterTitle::deserialize(file);
+      if (!title) {
+        return nullptr;
+      }
+      page->elements.push_back(std::move(title));
     } else {
       LOG_ERR("PGE", "Deserialization failed: Unknown tag %u", tag);
       return nullptr;

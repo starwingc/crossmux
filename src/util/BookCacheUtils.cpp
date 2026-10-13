@@ -10,6 +10,7 @@
 #include "ReadingStatsStore.h"
 #include "RecentBooksStore.h"
 #include "util/BookFontMemory.h"
+#include "util/BookGenre.h"
 #include "util/BookmarkUtil.h"
 #include "util/HighlightFile.h"
 
@@ -93,6 +94,7 @@ bool relocateBookReferences(const std::string& oldPath, const std::string& newPa
   const std::string newCachePath = bookCachePath(newPath);
   if (!RECENT_BOOKS.updatePath(oldPath, newPath, oldCachePath, newCachePath)) ok = false;
   BookFontMemory::relocate(oldPath, newPath);
+  BookGenre::relocate(oldPath, newPath);
 
   if (const ReadingBookStats* stats = READING_STATS.findBook(oldPath)) {
     const std::string newCoverPath = remapCacheAsset(stats->coverBmpPath, oldCachePath, newCachePath);

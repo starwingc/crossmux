@@ -100,6 +100,10 @@ class EpubReaderActivity final : public ReaderActivity {
   ReaderFontPreview fontPreview;
   enum class FontPromptState { Idle, Asking, Accepted };
   FontPromptState fontPromptState = FontPromptState::Idle;
+  // Pixel theme: ask once for an untagged book's genre (drives the study cat's class).
+  bool genrePromptPending = false;
+  bool genrePromptActive = false;
+  void handleGenrePrompt();
   bool fontPromptWaitForBackRelease = false;
   // True while a clean-page snapshot (renderer.storeBwBuffer) backs the open
   // overlay, letting panel->toolbar steps restore the page without a full

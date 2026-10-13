@@ -1711,3 +1711,12 @@ bool ParsedText::extractLine(const size_t lineIndex, const size_t lineBreak, con
   }
   return processLine(std::move(block), lineVisibleOffset);
 }
+
+std::string ParsedText::plainText() const {
+  std::string out;
+  for (size_t i = 0; i < words.size(); ++i) {
+    if (i > 0 && !wordContinues[i] && !wordNoSpaceBefore[i]) out += ' ';
+    out += words[i];
+  }
+  return out;
+}

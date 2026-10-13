@@ -50,6 +50,7 @@
 #include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
 #include "util/ImageViewerActivity.h"
+#include "util/PowerMenuActivity.h"
 #include "util/UserGuide.h"
 
 static portMUX_TYPE activityManagerSpinlock = portMUX_INITIALIZER_UNLOCKED;
@@ -266,6 +267,19 @@ bool ActivityManager::handleMainTabInput() {
 
   int x = 0;
   int y = 0;
+  // Pixel: the study room is the navigation. Its own page owns every tap, and
+  // the other pages' scene header only has a back-to-room button on the left.
+  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::PIXEL) {
+    if (currentTab == MainTab::Recent) return false;
+    if (mappedInput.wasScreenTapped(x, y)) {
+      if (y < tabTop || y >= tabBottom) return false;
+      if (x < 96) {
+        mainTabFocus = MainTabFocus::Content;
+        goToMainTab(MainTab::Recent);
+      }
+      return true;
+    }
+  }
   if (mappedInput.wasScreenTapped(x, y)) {
     if (y >= tabTop && y < tabBottom) {
       const MainTab target = MainTabs::fromX(x, renderer.getScreenWidth());
@@ -470,7 +484,7 @@ void ActivityManager::goHome(HomeMenuItem initialMenuItem) {
   if (!CrossPointSettings::requiresOnboarding(SETTINGS.onboardingVersion)) {
     UserGuide::installIfPending(static_cast<Language>(SETTINGS.language) == Language::ZH_CN);
   }
-  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::INX) {
+  if (CrossPointSettings::usesInxShell(SETTINGS.uiTheme)) {
     mainTabFocus = MainTabFocus::Tabs;
     mainTabEntryReleasePending = false;
     goToInxRecent();
@@ -598,6 +612,10 @@ void ActivityManager::runQuickAction(const uint8_t action) {
         RenderLock lock;
         renderer.displayBuffer(HalDisplay::HALF_REFRESH);
       }
+      break;
+    case CrossPointSettings::QA_POWER_MENU:
+      if (currentActivity && currentActivity->name == "PowerMenu") break;
+      if (auto menu = makeUniqueNoThrow<PowerMenuActivity>(renderer, mappedInput)) pushActivity(std::move(menu));
       break;
     case CrossPointSettings::QA_ROTATE:
       // Reading orientation, as the control center's tile cycles it.

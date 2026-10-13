@@ -53,6 +53,15 @@ class ChapterHtmlSlimParser {
   uint8_t firstLineIndent;
   int8_t characterSpacing = 0;
   uint8_t wordSpacingPercent = 100;
+  // Reader-drawn chapter title: the section's leading <h1>-<h6> blocks are held back and,
+  // when their text matches the spine's TOC title, replaced by one PageChapterTitle.
+  uint8_t chapterTitleStyle = 0;  // 0 = lay out the book's own headings
+  std::string tocTitle;
+  bool titlePhase = true;
+  const ParsedText* headerBlock = nullptr;
+  int headerNesting = 0;  // open <h1>-<h6> elements; blocks started inside belong to the heading
+  std::vector<std::unique_ptr<ParsedText>> heldTitleBlocks;
+  void emitHeldChapterTitle();
   uint8_t paragraphAlignment;
   uint16_t viewportWidth;
   uint16_t viewportHeight;
@@ -214,6 +223,10 @@ class ChapterHtmlSlimParser {
   void setTextSpacing(const int8_t character, const uint8_t wordPercent) {
     characterSpacing = character;
     wordSpacingPercent = wordPercent;
+  }
+  void setChapterTitleStyle(const uint8_t style, std::string title) {
+    chapterTitleStyle = style;
+    tocTitle = std::move(title);
   }
 
   // One-shot parse: builds every page before returning (begin + step* + finish).

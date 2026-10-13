@@ -32,4 +32,10 @@ struct ReaderRenderSpec {
   uint8_t imageRendering = 0;
   bool focusReadingEnabled = false;
   bool collectTouchLinks = false;
+  // Layout-affecting renderer options (bit flags below); part of the section cache key.
+  static constexpr uint8_t LAYOUT_CJK_FULL_WIDTH_QUOTES = 0x01;
+  // Bits 1..3: reader-drawn chapter title style (0 = the book's own headings).
+  static constexpr uint8_t LAYOUT_CHAPTER_TITLE_SHIFT = 1;
+  uint8_t layoutFlags = 0;
+  uint8_t chapterTitleStyle() const { return (layoutFlags >> LAYOUT_CHAPTER_TITLE_SHIFT) & 0x07; }
 };

@@ -256,6 +256,11 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   // option lists depend on the SD font registry), so the generic loop skips them.
   doc["fontFamily"] = fontFamily;
   doc["fontSize"] = fontPointSize;
+  // Pixel-style typesetting options, edited only from Text Settings. Kept out of
+  // SettingsList: getSettingsList() builds its whole table on the caller's stack.
+  doc["bwTextWeight"] = bwTextWeight;
+  doc["cjkPunctWidth"] = cjkPunctWidth;
+  doc["chapterTitleStyle"] = chapterTitleStyle;
   // SD card font family name — not in SettingsList, save manually
   if (sdFontFamilyName[0] != '\0') {
     doc["sdFontFamilyName"] = sdFontFamilyName;
@@ -448,6 +453,14 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
     needsResave = true;
   }
   fontPointSize = storedFontSize;
+
+  const auto loadEnum = [&doc](const char* key, uint8_t& field, const uint8_t count) {
+    const uint8_t v = doc[key] | field;
+    if (v < count) field = v;
+  };
+  loadEnum("bwTextWeight", bwTextWeight, BW_TEXT_WEIGHT_COUNT);
+  loadEnum("cjkPunctWidth", cjkPunctWidth, CJK_PUNCT_WIDTH_COUNT);
+  loadEnum("chapterTitleStyle", chapterTitleStyle, CHAPTER_TITLE_STYLE_COUNT);
 
   // Font family — uses dynamic getter/setter in SettingsList so the generic loop skips it.
   const uint8_t storedFontFamily = doc["fontFamily"] | (uint8_t)0;
@@ -693,6 +706,10 @@ ReaderRenderSpec CrossPointSettings::readerRenderSpec(const uint16_t viewportWid
   spec.lineCompression = getReaderLineCompression();
   spec.characterSpacing = getCharacterSpacing();
   spec.wordSpacingPercent = wordSpacing;
+  spec.layoutFlags = cjkPunctWidth == CJK_PUNCT_STANDARD ? ReaderRenderSpec::LAYOUT_CJK_FULL_WIDTH_QUOTES : 0;
+  if (chapterTitleStyle < CHAPTER_TITLE_STYLE_COUNT) {
+    spec.layoutFlags |= static_cast<uint8_t>(chapterTitleStyle << ReaderRenderSpec::LAYOUT_CHAPTER_TITLE_SHIFT);
+  }
   spec.extraParagraphSpacing = paragraphSpacingPercent;
   spec.firstLineIndent = firstLineIndent;
   spec.paragraphAlignment = paragraphAlignment;

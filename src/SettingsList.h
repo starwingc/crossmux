@@ -198,6 +198,7 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
     sleepScreenValues[CrossPointSettings::BLANK] = StrId::STR_NONE_OPT;
     sleepScreenValues[CrossPointSettings::QUICK_RESUME] = StrId::STR_QUICK_RESUME;
     sleepScreenValues[CrossPointSettings::TRANSPARENT] = StrId::STR_TRANSPARENT;
+    sleepScreenValues[CrossPointSettings::STUDY] = StrId::STR_SLEEP_STUDY;
 
     std::vector<StrId> statusBarClockValues(CrossPointSettings::STATUS_BAR_CLOCK_MODE_COUNT);
     statusBarClockValues[CrossPointSettings::STATUS_BAR_CLOCK_HIDE] = StrId::STR_HIDE;
@@ -227,7 +228,8 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
                           "refreshFrequency", StrId::STR_CAT_DISPLAY),
         SettingInfo::Enum(StrId::STR_UI_THEME, &CrossPointSettings::uiTheme,
                           {StrId::STR_THEME_CLASSIC, StrId::STR_THEME_LYRA, StrId::STR_THEME_LYRA_EXTENDED,
-                           StrId::STR_THEME_ROUNDEDRAFF, StrId::STR_THEME_LYRA_CAROUSEL, StrId::STR_THEME_INX},
+                           StrId::STR_THEME_ROUNDEDRAFF, StrId::STR_THEME_LYRA_CAROUSEL, StrId::STR_THEME_INX,
+                           StrId::STR_THEME_PIXEL},
                           "uiTheme", StrId::STR_CAT_DISPLAY),
         SettingInfo::Enum(StrId::STR_INX_RECENT_LAYOUT, &CrossPointSettings::inxRecentLayout,
                           {StrId::STR_LAYOUT_FLOW, StrId::STR_LAYOUT_GRID, StrId::STR_LAYOUT_LIST,
@@ -374,7 +376,7 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
 #endif
         SettingInfo::Enum(StrId::STR_HOME_HOLD_ACTION, &CrossPointSettings::homeHoldAction,
                           {StrId::STR_STATE_OFF, StrId::STR_CONTROL_CENTER, StrId::STR_SLEEP, StrId::STR_FORCE_REFRESH,
-                           StrId::STR_LONG_PRESS_BEHAVIOR_ORIENTATION},
+                           StrId::STR_LONG_PRESS_BEHAVIOR_ORIENTATION, StrId::STR_POWER_MENU},
                           "homeHoldAction", StrId::STR_CAT_CONTROLS),
         SettingInfo::Toggle(StrId::STR_PAGE_BUTTON_WAKE, &CrossPointSettings::pageButtonWake, "pageButtonWake",
                             StrId::STR_CAT_CONTROLS),

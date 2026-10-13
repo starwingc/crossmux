@@ -48,6 +48,7 @@
 #include "SdCardFontSystem.h"
 #include "activities/settings/TextSettingsActivity.h"
 #include "util/BookCacheUtils.h"
+#include "util/BookGenre.h"
 #include "util/BookmarkFile.h"
 #include "util/ReadingBackground.h"
 #include "util/ReadingGuideLine.h"
@@ -272,6 +273,7 @@ EpubReaderActivity::~EpubReaderActivity() {
 }
 
 void EpubReaderActivity::onExit() {
+  renderer.setCjkFullWidthQuotes(false);  // reader-only typesetting option
   if (footnoteDepth > 0 && epub) {
     const SavedPosition& origin = savedPositions[0];
     saveProgress(origin.spineIndex, origin.pageNumber, 0);
@@ -321,6 +323,8 @@ bool EpubReaderActivity::loadBook() {
   });
 
   epub->setupCacheDir();
+  genrePromptPending = SETTINGS.uiTheme == CrossPointSettings::UI_THEME::PIXEL &&
+                       BookGenre::get(epub->getPath()) == BookGenre::UNTAGGED;
 
 #ifdef ENABLE_CHINESE_VERSION
   wereadBookId_[0] = '\0';
@@ -464,6 +468,8 @@ void EpubReaderActivity::openReaderMenu() {
 ReaderRenderSpec EpubReaderActivity::effectiveRenderSpec(const uint16_t width, const uint16_t height) const {
   auto spec = SETTINGS.readerRenderSpec(width, height);
   spec.collectTouchLinks = mappedInput.hasTouch();
+  // Measurement and drawing must agree, so the renderer option follows the layout key.
+  renderer.setCjkFullWidthQuotes(spec.layoutFlags & ReaderRenderSpec::LAYOUT_CJK_FULL_WIDTH_QUOTES);
   if (stylesDisabledForSession_) spec.embeddedStyle = false;
   return spec;
 }
@@ -781,6 +787,7 @@ void EpubReaderActivity::openHighlightSelect(const int touchX, const int touchY)
   std::shared_ptr<Page> page(std::move(loaded));
   auto drawPage = [this, page, fontId, marginLeft, marginTop] {
     GfxRenderer::SyntheticBoldScope syntheticBold(renderer, SETTINGS.fakeBold);
+    GfxRenderer::BwGlyphWeightScope bwWeight(renderer, SETTINGS.bwGlyphMinCoverage());
     auto scope = renderer.getFontCacheManager()->createPrewarmScope();
     page->render(renderer, fontId, marginLeft, marginTop);
     scope.endScanAndPrewarm();
@@ -851,6 +858,11 @@ void EpubReaderActivity::loop() {
   if (fontPromptState != FontPromptState::Idle) {
     lastPageTurnTime = millis();
     handleFontPreloadPrompt();
+    return;
+  }
+  if (genrePromptActive || (genrePromptPending && overlay == Overlay::None)) {
+    lastPageTurnTime = millis();
+    handleGenrePrompt();
     return;
   }
   // Child activities suspend this loop; their temporary Overlay::None is not
@@ -1735,7 +1747,7 @@ bool EpubReaderActivity::skipLoopDelay() {
 void EpubReaderActivity::render(RenderLock&& lock) {
   ReaderActivity::render(std::move(lock));
   // Rebuild the page underneath, including after a global control-center visit.
-  if (fontPromptState != FontPromptState::Idle) overlayPopup.processRender(renderer, mappedInput);
+  if (fontPromptState != FontPromptState::Idle || genrePromptActive) overlayPopup.processRender(renderer, mappedInput);
 }
 
 void EpubReaderActivity::renderBook() {
@@ -2194,6 +2206,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const int fontId = SETTINGS.getReaderFontId();
   const auto renderPage = [&] {
     GfxRenderer::SyntheticBoldScope syntheticBold(renderer, SETTINGS.fakeBold);
+    GfxRenderer::BwGlyphWeightScope bwWeight(renderer, SETTINGS.bwGlyphMinCoverage());
     page->render(renderer, fontId, orientedMarginLeft, orientedMarginTop);
   };
 
@@ -3348,6 +3361,34 @@ void EpubReaderActivity::finishFontPreview() {
                         if (index == 0) fontPromptState = FontPromptState::Accepted;
                       });
   }
+  requestUpdate();
+}
+
+void EpubReaderActivity::handleGenrePrompt() {
+  if (!genrePromptActive) {
+    genrePromptPending = false;
+    RenderLock lock;
+    static constexpr StrId kGenreOptions[] = {StrId::STR_GENRE_FANTASY, StrId::STR_GENRE_WUXIA,
+                                              StrId::STR_GENRE_HISTORY, StrId::STR_GENRE_MYSTERY,
+                                              StrId::STR_GENRE_ROMANCE, StrId::STR_GENRE_SCIFI,
+                                              StrId::STR_GENRE_SKIP};
+    static_assert(std::size(kGenreOptions) == BookGenre::GENRE_COUNT);
+    genrePromptActive = true;
+    const std::string path = epub->getPath();
+    overlayPopup.show(StrId::STR_GENRE_PROMPT, kGenreOptions, static_cast<int>(std::size(kGenreOptions)), 0,
+                      [path](int index) {
+                        const bool skipped = index + 1 >= BookGenre::GENRE_COUNT;
+                        BookGenre::set(path, skipped ? BookGenre::DECLINED : static_cast<uint8_t>(index + 1));
+                      });
+    requestUpdate();
+    return;
+  }
+  overlayPopup.handleInput(mappedInput, [this] { requestUpdate(); });
+  if (overlayPopup.isActive()) return;
+  // Dismissed without a choice (Back): ask again next time the book opens.
+  RenderLock lock;
+  genrePromptActive = false;
+  overlayPopup.dismiss();
   requestUpdate();
 }
 

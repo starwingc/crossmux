@@ -56,6 +56,10 @@ class TextSettingsActivity final : public UiTabListActivity {
     EmbeddedStyle,
     FakeBold,
     AntiAliasing,
+    TextWeight,
+    PunctWidth,
+    ChapterTitle,
+    PixelPreset,
     Count
   };
   static constexpr int HIDDEN_GUIDE_ROW_COUNT =
@@ -93,6 +97,7 @@ class TextSettingsActivity final : public UiTabListActivity {
   void confirmStyleRow(int row);
   // Applies the row at the given list index for the active tab (Confirm and tap share this).
   void activateRow(int row);
+  void applyPixelPreset();
 
   std::string layoutValueText(int row) const;
   std::string styleValueText(int row) const;

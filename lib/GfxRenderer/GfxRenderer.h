@@ -82,6 +82,9 @@ class GfxRenderer {
   Orientation orientation;
   bool fadingFix;
   mutable uint8_t syntheticBoldPixels = 0;
+  // B/W text pass: 2-bit glyph coverage below this (1..3) stays white.
+  uint8_t bwGlyphMinCoverage_ = 1;
+  bool cjkFullWidthQuotes_ = false;
   uint8_t* frameBuffer = nullptr;
   uint16_t panelWidth = HalDisplay::DISPLAY_WIDTH;
   uint16_t panelHeight = HalDisplay::DISPLAY_HEIGHT;
@@ -262,6 +265,12 @@ class GfxRenderer {
   // Non-inline: the host-test HalDisplay (crosspoint-simulator) lacks
   // isInverted(), and the header is compiled by test targets.
   bool isInverted() const;
+  // Glyph weight for B/W-only text: 1 = any coverage is ink (default), 3 = solid core only.
+  void setBwGlyphMinCoverage(const uint8_t minCoverage) { bwGlyphMinCoverage_ = minCoverage ? minCoverage : 1; }
+  uint8_t bwGlyphMinCoverage() const { return bwGlyphMinCoverage_; }
+  // Set curly quotes next to CJK text in a full ideographic cell (opening
+  // quotes right-aligned, closing quotes left-aligned), for measurement and drawing.
+  void setCjkFullWidthQuotes(const bool enabled) { cjkFullWidthQuotes_ = enabled; }
   // EXPERIMENTAL: Windowed update - display only a rectangular region
   // void displayWindow(int x, int y, int width, int height) const;
   void invertScreen() const;
@@ -370,6 +379,21 @@ class GfxRenderer {
 
    private:
     const GfxRenderer& renderer_;
+    uint8_t previous_;
+  };
+
+  class BwGlyphWeightScope {
+   public:
+    BwGlyphWeightScope(GfxRenderer& renderer, const uint8_t minCoverage)
+        : renderer_(renderer), previous_(renderer.bwGlyphMinCoverage_) {
+      renderer_.setBwGlyphMinCoverage(minCoverage);
+    }
+    ~BwGlyphWeightScope() { renderer_.bwGlyphMinCoverage_ = previous_; }
+    BwGlyphWeightScope(const BwGlyphWeightScope&) = delete;
+    BwGlyphWeightScope& operator=(const BwGlyphWeightScope&) = delete;
+
+   private:
+    GfxRenderer& renderer_;
     uint8_t previous_;
   };
 

@@ -441,6 +441,7 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
   }
   wordsExtractedInBlock = 0;
   listItemBulletOnly = false;
+  if (headerNesting > 0) headerBlock = currentTextBlock.get();
 }
 
 void ChapterHtmlSlimParser::emitHorizontalRule(const BlockStyle& blockStyle) {
@@ -1402,6 +1403,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     self->blockStyleStack.push_back(accumulated);
     self->startNewTextBlock(accumulated.withoutBottom());
     if (self->hasFailed()) return;
+    self->headerBlock = self->currentTextBlock.get();
+    self->headerNesting++;
     self->boldUntilDepth = std::min(self->boldUntilDepth, self->depth);
     self->updateEffectiveInlineStyle();
   } else if (matches(name, BLOCK_TAGS, std::size(BLOCK_TAGS))) {
@@ -1835,6 +1838,9 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
   if (self->nonVisibleTextDepth > 0) {
     self->nonVisibleTextDepth--;
   }
+  if (self->headerNesting > 0 && matches(name, HEADER_TAGS, std::size(HEADER_TAGS))) {
+    self->headerNesting--;
+  }
 
   // Ruby text: </rt> distributes ruby to base words, </ruby> resets ruby state
   if (strcmp(name, "rt") == 0) {
@@ -2214,6 +2220,23 @@ bool ChapterHtmlSlimParser::finishParse() {
   }
   parseFile_.close();
 
+  // A section that is only a chapter heading still gets its title.
+  if (chapterTitleStyle != 0 && titlePhase) {
+    if (currentTextBlock && currentTextBlock.get() == headerBlock && !currentTextBlock->isEmpty()) {
+      heldTitleBlocks.push_back(std::move(currentTextBlock));
+    }
+    emitHeldChapterTitle();
+    if (hasFailed()) return false;
+    if (!currentTextBlock && currentPage) {
+      currentTextBlock = makeUniqueNoThrow<ParsedText>(extraParagraphSpacing, firstLineIndent, hyphenationEnabled,
+                                                       focusReadingEnabled, BlockStyle{}, collectTouchLinks);
+      if (!currentTextBlock) {
+        failAllocation("page layout");
+        return false;
+      }
+    }
+  }
+
   // Process last page if there is still text
   if (currentTextBlock) {
     makePages();
@@ -2306,6 +2329,16 @@ void ChapterHtmlSlimParser::makePages() {
     return;
   }
 
+  if (chapterTitleStyle != 0 && titlePhase && !currentTextBlock->isEmpty()) {
+    if (currentTextBlock.get() == headerBlock) {
+      heldTitleBlocks.push_back(std::move(currentTextBlock));
+      headerBlock = nullptr;
+      return;
+    }
+    emitHeldChapterTitle();
+    if (hasFailed()) return;
+  }
+
   if (!currentPage) {
     if (!allocatePage()) return;
   }
@@ -2359,4 +2392,95 @@ void ChapterHtmlSlimParser::makePages() {
   if (extraParagraphSpacing > 0) {
     currentPageNextY += static_cast<int16_t>(lineHeight * extraParagraphSpacing / 100);
   }
+}
+
+namespace {
+// Title text reduced to its letters for TOC comparison: drops ASCII/ideographic spaces and
+// common separators so "第1章 边陲", "第1章　边陲" and "第1章·边陲" all compare equal.
+std::string normalizedTitle(const std::string& text) {
+  std::string out;
+  const auto* p = reinterpret_cast<const uint8_t*>(text.c_str());
+  while (const uint32_t cp = utf8NextCodepoint(&p)) {
+    if (cp <= 0x20 || cp == 0x3000 || cp == 0xB7 || cp == 0x30FB || cp == ':' || cp == 0xFF1A || cp == '-' ||
+        cp == 0x2014)
+      continue;
+    utf8AppendCodepoint(cp, out);
+  }
+  return out;
+}
+
+void trimAscii(std::string& s) {
+  const auto b = s.find_first_not_of(" \t\r\n");
+  if (b == std::string::npos) {
+    s.clear();
+    return;
+  }
+  s = s.substr(b, s.find_last_not_of(" \t\r\n") - b + 1);
+}
+}  // namespace
+
+void ChapterHtmlSlimParser::emitHeldChapterTitle() {
+  titlePhase = false;
+  if (heldTitleBlocks.empty()) return;
+
+  std::vector<std::string> parts;
+  for (const auto& block : heldTitleBlocks) {
+    std::string text = block->plainText();
+    trimAscii(text);
+    if (!text.empty()) parts.push_back(std::move(text));
+  }
+  std::string joined;
+  for (const auto& part : parts) joined += part;
+  const std::string have = normalizedTitle(joined);
+  const std::string want = normalizedTitle(tocTitle);
+  const bool matches = !have.empty() && !want.empty() && parts.size() <= 2 &&
+                       (have == want || have.find(want) != std::string::npos ||
+                        (want.size() >= 6 && want.find(have) != std::string::npos));
+
+  if (!matches) {
+    // Not the chapter title (front matter, sub-headings): lay out the book's own headings.
+    auto body = std::move(currentTextBlock);
+    for (auto& block : heldTitleBlocks) {
+      currentTextBlock = std::move(block);
+      makePages();
+      if (hasFailed()) return;
+    }
+    heldTitleBlocks.clear();
+    currentTextBlock = std::move(body);
+    return;
+  }
+  heldTitleBlocks.clear();
+
+  std::string first = parts[0];
+  std::string second = parts.size() > 1 ? parts[1] : std::string();
+  if (second.empty()) {
+    const auto space = first.find(' ');
+    if (space != std::string::npos) {
+      second = first.substr(space + 1);
+      first.resize(space);
+      trimAscii(second);
+    }
+  }
+  if (first.size() > PageChapterTitle::MAX_PART_BYTES) first.resize(PageChapterTitle::MAX_PART_BYTES);
+  if (second.size() > PageChapterTitle::MAX_PART_BYTES) second.resize(PageChapterTitle::MAX_PART_BYTES);
+
+  if (!currentPage && !allocatePage()) return;
+  const int lineHeight = renderer.getLineHeight(fontId, lineCompression);
+  const auto height = static_cast<int16_t>(PageChapterTitle::heightInHalfLines(chapterTitleStyle) * lineHeight / 2);
+  if (!currentPage->elements.empty() && currentPageNextY + height > viewportHeight) {
+    setCurrentPageVisibleOffset(visibleTextOffset);
+    completePageFn(std::move(currentPage), xpathParagraphIndex, xpathListItemIndex, currentPageVisibleOffset);
+    if (hasFailed()) return;
+    completedPageCount++;
+    if (!allocatePage()) return;
+  }
+  auto title = makeUniqueNoThrow<PageChapterTitle>(chapterTitleStyle, viewportWidth, height, std::move(first),
+                                                   std::move(second), 0, currentPageNextY);
+  if (!title) {
+    failAllocation("PageChapterTitle");
+    return;
+  }
+  currentPage->elements.push_back(std::move(title));
+  setCurrentPageVisibleOffset(visibleTextOffset);
+  currentPageNextY = static_cast<int16_t>(currentPageNextY + height);
 }

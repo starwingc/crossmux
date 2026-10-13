@@ -49,6 +49,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     COVER_CUSTOM = 5,
     QUICK_RESUME = 6,
     TRANSPARENT = 7,
+    STUDY = 8,  // Pixel theme study room at night with the sleeping cat
     SLEEP_SCREEN_MODE_COUNT
   };
   enum SLEEP_SCREEN_COVER_MODE { FIT = 0, CROP = 1, SLEEP_SCREEN_COVER_MODE_COUNT };
@@ -234,7 +235,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   };
 
   // UI Theme
-  enum UI_THEME { CLASSIC = 0, LYRA = 1, LYRA_3_COVERS = 2, ROUNDEDRAFF = 3, LYRA_CAROUSEL = 4, INX = 5 };
+  enum UI_THEME { CLASSIC = 0, LYRA = 1, LYRA_3_COVERS = 2, ROUNDEDRAFF = 3, LYRA_CAROUSEL = 4, INX = 5, PIXEL = 6 };
+  // Pixel is drawn on top of Inx's main-tab shell (tabs, recent screen, keyboard geometry).
+  static constexpr bool usesInxShell(const uint8_t theme) { return theme == INX || theme == PIXEL; }
 
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
@@ -326,6 +329,29 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t characterSpacing = CHARACTER_SPACING_OFFSET;
   int8_t getCharacterSpacing() const { return static_cast<int8_t>(characterSpacing - CHARACTER_SPACING_OFFSET); }
   uint8_t textAntiAliasing = 1;
+  // Glyph weight when anti-aliasing is off: which font coverage levels turn
+  // into black pixels (thin = solid core only, bold = any coverage).
+  enum BW_TEXT_WEIGHT : uint8_t { BW_WEIGHT_THIN = 0, BW_WEIGHT_STANDARD = 1, BW_WEIGHT_BOLD = 2, BW_TEXT_WEIGHT_COUNT };
+  uint8_t bwTextWeight = BW_WEIGHT_BOLD;
+  // CJK punctuation width: compact keeps the font's own (proportional) curly
+  // quotes; standard sets “”‘’ next to CJK text in a full ideographic cell.
+  enum CJK_PUNCT_WIDTH : uint8_t { CJK_PUNCT_COMPACT = 0, CJK_PUNCT_STANDARD = 1, CJK_PUNCT_WIDTH_COUNT };
+  uint8_t cjkPunctWidth = CJK_PUNCT_COMPACT;
+  // Chapter title drawn by the reader instead of the book's own heading markup.
+  // Values match PageChapterTitle::Style (1..4); 0 keeps the book's headings.
+  enum CHAPTER_TITLE_STYLE : uint8_t {
+    CHAPTER_TITLE_BOOK = 0,
+    CHAPTER_TITLE_PLAIN = 1,
+    CHAPTER_TITLE_BANNER = 2,
+    CHAPTER_TITLE_LEFT_RULE = 3,
+    CHAPTER_TITLE_ORNAMENT = 4,
+    CHAPTER_TITLE_STYLE_COUNT
+  };
+  uint8_t chapterTitleStyle = CHAPTER_TITLE_BOOK;
+  // Minimum 2-bit glyph coverage (1..3) drawn black in the B/W text pass.
+  uint8_t bwGlyphMinCoverage() const {
+    return textAntiAliasing ? 1 : static_cast<uint8_t>(3 - (bwTextWeight < BW_TEXT_WEIGHT_COUNT ? bwTextWeight : 2));
+  }
   uint8_t fakeBold = SYNTHETIC_BOLD_STANDARD;
   uint8_t readingBackgroundEnabled = 0;
   uint8_t readingGuideLineEnabled = 0;
@@ -343,7 +369,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     QA_SLEEP = 2,
     QA_REFRESH = 3,
     QA_ROTATE = 4,
-    QA_READER_MENU = 5,
+    QA_POWER_MENU = 5,
+    QA_READER_MENU = 6,
   };
   // Home hold outside books (and in books when the long-press menu is Disabled).
   uint8_t homeHoldAction = QA_SLEEP;

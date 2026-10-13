@@ -393,8 +393,30 @@ static uint8_t get2BitCoverage(const uint8_t* bitmap, const int pixelPosition) {
   return (byte >> ((3 - (pixelPosition & 3)) * 2)) & 0x3;
 }
 
+namespace {
+bool isCurlyQuote(const uint32_t cp) { return cp == 0x2018 || cp == 0x2019 || cp == 0x201C || cp == 0x201D; }
+bool isOpeningCurlyQuote(const uint32_t cp) { return cp == 0x2018 || cp == 0x201C; }
+// CJK ideographs, CJK symbols/punctuation, kana and full-width forms.
+bool isCjkContextCodepoint(const uint32_t cp) {
+  return (cp >= 0x2E80 && cp <= 0x9FFF) || (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0xFE30 && cp <= 0xFE4F) ||
+         (cp >= 0xFF00 && cp <= 0xFFEF) || (cp >= 0x20000 && cp <= 0x3FFFF);
+}
+uint32_t peekCodepoint(const char* text) {
+  const auto* p = reinterpret_cast<const uint8_t*>(text);
+  return utf8NextCodepoint(&p);
+}
+// Quotes count as CJK when a neighbour in the same run is CJK, or when CJK line
+// breaking left the quote as a token of its own.
+bool quoteInCjkContext(const uint32_t prevCp, const uint32_t nextCp) {
+  if (isCjkContextCodepoint(prevCp) || isCjkContextCodepoint(nextCp)) return true;
+  return prevCp == 0 && nextCp == 0;
+}
+constexpr uint32_t CJK_CELL_REFERENCE_CP = 0x4E00;  // "一": full ideographic advance
+}  // namespace
+
 static void draw2BitGlyphPixel(const GfxRenderer& renderer, const GfxRenderer::RenderMode renderMode, const int x,
                                const int y, const bool pixelState, const uint8_t coverage) {
+  if (renderMode == GfxRenderer::BW && coverage < renderer.bwGlyphMinCoverage()) return;
   const auto pixel = GfxRenderer::mapTwoBitGlyphCoverage(renderMode, coverage);
   if (!pixel.draw) return;
   renderer.drawPixel(x, y, renderMode == GfxRenderer::BW ? pixelState : pixel.state);
@@ -770,6 +792,14 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     lastBaseWidth = glyph ? glyph->width : 0;
     lastBaseTop = glyph ? glyph->top : 0;
     prevAdvanceFP = glyph ? glyph->advanceX : 0;  // 12.4 fixed-point
+    int glyphX = lastBaseX;
+    if (cjkFullWidthQuotes_ && glyph && isCurlyQuote(cp) && quoteInCjkContext(prevCp, peekCodepoint(textCursor))) {
+      const EpdGlyph* cell = font.getGlyph(CJK_CELL_REFERENCE_CP, renderStyle);
+      if (cell && cell->advanceX > prevAdvanceFP) {
+        if (isOpeningCurlyQuote(cp)) glyphX += fp4::toPixel(cell->advanceX - prevAdvanceFP);
+        prevAdvanceFP = cell->advanceX;
+      }
+    }
 
     const bool isSupSub = (renderStyle & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0;
     if (isSupSub) {
@@ -782,7 +812,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       // yPos already carries the vertical offset applied by TextBlock::render().
       renderCharScaled(*this, renderMode, font, cp, lastBaseX, yPos, black, renderStyle, activeSyntheticBoldPixels);
     } else {
-      renderCharImpl<TextRotation::None>(*this, renderMode, font, cp, lastBaseX, yPos, black, renderStyle,
+      renderCharImpl<TextRotation::None>(*this, renderMode, font, cp, glyphX, yPos, black, renderStyle,
                                          activeSyntheticBoldPixels);
     }
     prevCp = cp;
@@ -2185,6 +2215,7 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
     const uint8_t styleIdx = resolveSdCardStyle(*sdIt->second, style);
     int widthPx = 0;
     int32_t prevAdvanceFP = 0;  // 12.4 fixed-point: previous glyph's advance
+    uint32_t prevQuoteCp = 0;   // previous codepoint, for the CJK quote context
     bool havePrev = false;
     while (uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text))) {
       // RTL vowel marks (niqqud/harakat) are zero-advance overlays in drawText — no width.
@@ -2212,6 +2243,11 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
       // and fell back to a bogus 2×"M" column width that spread ideographs far
       // apart. See SdCardFont::getAdvanceOrLoad.
       prevAdvanceFP = static_cast<int32_t>(sdIt->second->getAdvanceOrLoad(cp, styleIdx));
+      if (cjkFullWidthQuotes_ && isCurlyQuote(cp) && quoteInCjkContext(prevQuoteCp, peekCodepoint(text))) {
+        prevAdvanceFP = std::max(prevAdvanceFP,
+                                 static_cast<int32_t>(sdIt->second->getAdvanceOrLoad(CJK_CELL_REFERENCE_CP, styleIdx)));
+      }
+      prevQuoteCp = cp;
       // SUP/SUB glyphs render at 50% scale (renderCharScaled), so halve the advance
       // to keep measurement consistent with drawText and the builtin-font path below.
       if (isSupSub) prevAdvanceFP = (prevAdvanceFP + 1) / 2;
@@ -2251,6 +2287,10 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
 
     const EpdGlyph* glyph = font.getGlyph(cp, style);
     prevAdvanceFP = glyph ? glyph->advanceX : 0;
+    if (cjkFullWidthQuotes_ && glyph && isCurlyQuote(cp) && quoteInCjkContext(prevCp, peekCodepoint(text))) {
+      const EpdGlyph* cell = font.getGlyph(CJK_CELL_REFERENCE_CP, style);
+      if (cell && cell->advanceX > prevAdvanceFP) prevAdvanceFP = cell->advanceX;
+    }
     if ((style & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0) {
       prevAdvanceFP = (prevAdvanceFP + 1) / 2;
     }
