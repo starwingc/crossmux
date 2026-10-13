@@ -1449,6 +1449,11 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       onGoHome();
       return;
     }
+    case EpubReaderMenuActivity::MenuAction::BOOK_GENRE: {
+      genrePromptPending = true;  // loop() opens the genre picker once the menu is gone
+      requestUpdate();
+      return;
+    }
     case EpubReaderMenuActivity::MenuAction::DELETE_CACHE: {
       {
         RenderLock lock;
