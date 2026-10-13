@@ -322,6 +322,66 @@ void drawSleepScene(const GfxRenderer& r, const CatState& cat) {
   r.drawText(SMALL_FONT_ID, x + 14, y + h - 30, tr(STR_SLEEPING));
 }
 
+namespace {
+// 5x7 block letters for the splash title.
+struct Glyph {
+  char ch;
+  const char* rows[7];
+};
+constexpr Glyph kLetters[] = {
+    {'C', {".###.", "#...#", "#....", "#....", "#....", "#...#", ".###."}},
+    {'R', {"####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"}},
+    {'O', {".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."}},
+    {'S', {".####", "#....", "#....", ".###.", "....#", "....#", "####."}},
+    {'M', {"#...#", "##.##", "#.#.#", "#.#.#", "#...#", "#...#", "#...#"}},
+    {'U', {"#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."}},
+    {'X', {"#...#", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "#...#"}},
+};
+
+void drawBlockText(const GfxRenderer& r, const char* text, const int cx, const int y, const int scale) {
+  const int n = static_cast<int>(strlen(text));
+  const int advance = 6 * scale;
+  int x = cx - (n * advance - scale) / 2;
+  for (const char* p = text; *p; ++p, x += advance) {
+    for (const auto& g : kLetters) {
+      if (g.ch != *p) continue;
+      for (int row = 0; row < 7; ++row)
+        for (int col = 0; col < 5; ++col)
+          if (g.rows[row][col] == '#') r.fillRect(x + col * scale, y + row * scale, scale, scale, true);
+    }
+  }
+}
+}  // namespace
+
+void drawBootScene(const GfxRenderer& r, const char* version) {
+  drawRoomArt(r);
+  CatState sleepy;
+  drawCat(r, sleepy);
+  const int w = r.getScreenWidth();
+  r.fillRect(0, 0, w, 44, false);
+
+  const int cardX = 40;
+  const int cardY = 548;
+  const int cardW = w - 80;
+  const int cardH = 196;
+  r.fillRect(cardX + 6, cardY + 6, cardW, cardH, true);
+  r.fillRect(cardX, cardY, cardW, cardH, false);
+  r.drawRoundedRect(cardX, cardY, cardW, cardH, 3, 12, true);
+  drawBlockText(r, "CROSSMUX", w / 2, cardY + 26, 6);
+  const char* tagline = tr(STR_PIXEL_BOOT_TAGLINE);
+  r.drawText(UI_10_FONT_ID, (w - r.getTextWidth(UI_10_FONT_ID, tagline)) / 2, cardY + 94, tagline);
+  for (int i = 0; i < 5; ++i) {  // loading blocks
+    const int bx = w / 2 - 70 + i * 28;
+    if (i < 3)
+      r.fillRect(bx, cardY + 136, 22, 14, true);
+    else
+      r.drawRect(bx, cardY + 136, 22, 14, 2, true);
+  }
+  if (version && *version) {
+    r.drawText(SMALL_FONT_ID, (w - r.getTextWidth(SMALL_FONT_ID, version)) / 2, cardY + cardH - 26, version);
+  }
+}
+
 void drawCatCard(const GfxRenderer& r, const CatState& cat) {
   const int w = r.getScreenWidth() - 60;
   const int h = 300;

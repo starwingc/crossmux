@@ -3,6 +3,7 @@
 #include <GfxRenderer.h>
 
 #include <algorithm>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -10,6 +11,7 @@
 #include "I18n.h"
 #include "InxItemLayout.h"
 #include "components/UITheme.h"
+#include "components/themes/pixel/PixelAppIcons.h"
 #include "fontIds.h"
 
 namespace {
@@ -78,6 +80,23 @@ constexpr const char* kCabinetArt[16] = {
     "#..............#", "################", "#..............#", "#.....####.....#", "################",
     ".##..........##."};
 
+constexpr const char* kRadioArt[16] = {
+    "................", "............#...", "...........#....", "..........#.....", "..#############.",
+    "..#...........#.", "..#.###..####.#.", "..#.#.#..#..#.#.", "..#.###..####.#.", "..#...........#.",
+    "..#.#.#.#.#.#.#.", "..#...........#.", "..#############.", "...#.........#..", "................",
+    "................"};
+
+// Art for pages drawn with the generic header, picked by their title.
+const char* const* headerArtFor(const char* title) {
+  if (!title) return PixelAppIcons::kCatFace;
+  const auto is = [title](const StrId id) { return std::strcmp(title, I18N.get(id)) == 0; };
+  if (is(StrId::STR_FILE_TRANSFER)) return kRadioArt;
+  if (is(StrId::STR_READING_STATS)) return kClockArt;
+  if (is(StrId::STR_WEREAD_TITLE)) return PixelAppIcons::kOpenBook;
+  if (is(StrId::STR_AO3_TITLE)) return PixelAppIcons::kHeartScroll;
+  return PixelAppIcons::kCatFace;
+}
+
 struct Scene {
   StrId title;
   const char* subtitle;
@@ -121,6 +140,10 @@ void PixelTheme::drawHeader(const GfxRenderer& renderer, const Rect rect, const 
     renderer.drawText(UI_10_FONT_ID, titleRight + 10, midY - renderer.getLineHeight(UI_10_FONT_ID) / 2,
                       shown.c_str());
   }
+  constexpr int kArtScale = 3;
+  const int artSize = 16 * kArtScale;
+  titleRight -= artSize + 12;
+  drawArt(renderer, headerArtFor(title), rect.x + rect.width - kSidePadding - artSize, midY - artSize / 2, kArtScale);
   if (title && *title) {
     const std::string shown =
         renderer.truncatedText(UI_12_FONT_ID, title, std::max(1, titleRight - titleX), EpdFontFamily::BOLD);

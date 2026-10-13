@@ -126,8 +126,25 @@ void ReaderToolbarUi::buildToolRow(UiScreen& screen, const fui::LayoutAnchor anc
   // Theme radius as-is (the frontlight panel pattern); the fill clamps to
   // the shape's own height so round themes cannot overshoot.
   const uint8_t pillRadius = tokens.controlRadius;
+  const bool pixel = SETTINGS.uiTheme == CrossPointSettings::UI_THEME::PIXEL;
   for (int i = 0; i < kToolCount; ++i) {
     const fui::Rect slot{static_cast<int16_t>(row.x + slotW * i), row.y, slotW, row.height};
+    if (pixel) {
+      // Pixel: each tool is a raised tile with a hard shadow; the active one inverts.
+      const fui::Rect tile = slot.inset(fui::Insets{4, kToolPillInset, 8, kToolPillInset});
+      const bool active = i == model_.activeTool;
+      screen.target().fill(fui::Rect{static_cast<int16_t>(tile.x + 3), static_cast<int16_t>(tile.y + 3), tile.width,
+                                     tile.height},
+                           fui::Paint::solid(fui::Color::Black), 8);
+      screen.target().fill(tile, fui::Paint::solid(active ? fui::Color::Black : fui::Color::White), 8);
+      screen.target().stroke(tile, fui::Paint::solid(fui::Color::Black), 2, 8);
+      const fui::Rect iconRect{static_cast<int16_t>(slot.x + (slot.width - 24) / 2),
+                               static_cast<int16_t>(tile.y + (tile.height - 24) / 2), 24, 24};
+      screen.target().bitmap(iconRect, icons[i], fui::BitmapMode::Center,
+                             fui::Paint::solid(active ? fui::Color::White : fui::Color::Black));
+      screen.frame().hit(slot, ACTION_TOOL, static_cast<int16_t>(i), fui::InputTouch);
+      continue;
+    }
     if (i == model_.activeTool) {
       screen.target().stroke(slot.inset(fui::Insets{4, kToolPillInset, 4, kToolPillInset}),
                              fui::Paint::solid(fui::Color::Black), 2, pillRadius);
@@ -173,7 +190,7 @@ void ReaderToolbarUi::buildToolbar(UiScreen& screen) {
     stepProps_.styles.normal.background = fui::Paint::solid(fui::Color::White);
     stepProps_.styles.normal.foreground = fui::Paint::solid(fui::Color::Black);
     stepProps_.styles.normal.border = fui::Paint::solid(fui::Color::Black);
-    stepProps_.styles.normal.borderWidth = 1;
+    stepProps_.styles.normal.borderWidth = SETTINGS.uiTheme == CrossPointSettings::UI_THEME::PIXEL ? 2 : 1;
     stepProps_.styles.normal.radius = tokens.controlRadius;
     stepProps_.styles.selected = stepProps_.styles.normal;
     stepProps_.styles.focused = stepProps_.styles.normal;
@@ -195,14 +212,26 @@ void ReaderToolbarUi::buildToolbar(UiScreen& screen) {
     const int16_t trackW = static_cast<int16_t>(band.width - 2 * (kScrubButton + kScrubGap));
     const int16_t trackY = static_cast<int16_t>(band.y + band.height / 2);
     const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
-    screen.target().fill(fui::Rect{trackX, static_cast<int16_t>(trackY - 1), trackW, 2}, ink);
     const int permille = std::clamp(model_.progressPermille, 0, 1000);
+    if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::PIXEL) {
+      // Pixel: a framed bar filled to the book position.
+      const fui::Rect bar{trackX, static_cast<int16_t>(trackY - 7), trackW, 14};
+      screen.target().stroke(bar, ink, 2, 7);
+      const int16_t fillW = static_cast<int16_t>((static_cast<int32_t>(trackW - 8) * permille) / 1000);
+      if (fillW > 0)
+        screen.target().fill(fui::Rect{static_cast<int16_t>(trackX + 4), static_cast<int16_t>(trackY - 3), fillW, 6},
+                             ink, 3);
+      screen.frame().hit(fui::Rect{trackX, band.y, trackW, band.height}, ACTION_SCRUB, 0,
+                         fui::InputTouch | fui::InputDrag);
+    } else {
+    screen.target().fill(fui::Rect{trackX, static_cast<int16_t>(trackY - 1), trackW, 2}, ink);
     const int16_t knobX = static_cast<int16_t>(trackX + (static_cast<int32_t>(trackW - 1) * permille) / 1000);
     screen.target().fill(fui::Rect{static_cast<int16_t>(knobX - kScrubKnob / 2),
                                    static_cast<int16_t>(trackY - kScrubKnob / 2), kScrubKnob, kScrubKnob},
                          ink, static_cast<uint8_t>(kScrubKnob / 2));
     screen.frame().hit(fui::Rect{trackX, band.y, trackW, band.height}, ACTION_SCRUB, 0,
                        fui::InputTouch | fui::InputDrag);
+    }
   }
 
   // Meta line: chapter title (left), chapter page / book percent (right).

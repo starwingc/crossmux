@@ -39,6 +39,8 @@ struct CatState {
 void draw(const GfxRenderer& renderer, int selected, const CatState& cat);
 // Sleep screen: the room at night, the cat asleep, today's reading on a card.
 void drawSleepScene(const GfxRenderer& renderer, const CatState& cat);
+// Boot splash: the study with a pixel-lettered CROSSMUX card.
+void drawBootScene(const GfxRenderer& renderer, const char* version);
 // Card shown after tapping the cat.
 void drawCatCard(const GfxRenderer& renderer, const CatState& cat);
 

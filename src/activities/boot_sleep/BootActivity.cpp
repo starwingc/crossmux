@@ -1,5 +1,7 @@
 #include "BootActivity.h"
 
+#include "components/themes/pixel/PixelRoom.h"
+
 #include <GfxRenderer.h>
 #include <HalDisplay.h>
 #include <HalOtaSlot.h>
@@ -30,6 +32,11 @@ void BootActivity::renderSplash() {
   const auto pageHeight = renderer.getScreenHeight();
 
   renderer.clearScreen();
+  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::PIXEL) {
+    PixelRoom::drawBootScene(renderer, CROSSPOINT_VERSION);
+    renderer.displayBuffer();
+    return;
+  }
   renderer.drawImage(Logo120, (pageWidth - 120) / 2, (pageHeight - 120) / 2, 120, 120);
   renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 70, tr(STR_CROSSPOINT), true, EpdFontFamily::BOLD);
   renderer.drawCenteredText(SMALL_FONT_ID, pageHeight / 2 + 95, tr(STR_BOOTING));
