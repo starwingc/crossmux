@@ -1562,6 +1562,8 @@
         <input type="file" id="fileInput" onchange="validateFile()" multiple>
         <p class="drop-zone-hint">⬇ Drop files here — or click to browse</p>
       </div>
+      <div class="genre-row" style="margin:10px 0;"><label for="uploadGenre">Book genre (study cat class)</label>
+        <select id="uploadGenre" style="margin-left:8px;"><option value="0">Unclassified</option><option value="1">Fantasy (Mage)</option><option value="2">Martial Arts (Swordsman)</option><option value="3">History / Epic (Knight)</option><option value="4">Mystery (Detective)</option><option value="5">Romance / Poetry (Bard)</option><option value="6">Sci-Fi (Mechanic)</option></select></div>
       <div class="picker-columns" id="pickerColumns">
         <div class="convert-options" id="convertOptions" style="display:none;">
           <div class="convert-row">
@@ -5554,6 +5556,19 @@ function uploadFileWebSocket(file, onProgress, onComplete, onError) {
   });
 }
 
+// Pixel theme: remember the chosen genre for each uploaded EPUB (drives the study cat's class).
+async function tagUploadedGenre(file) {
+  const sel = document.getElementById('uploadGenre');
+  const genre = sel ? parseInt(sel.value, 10) : 0;
+  if (!genre || !/\.epub$/i.test(file.name)) return;
+  const dir = currentPath.endsWith('/') ? currentPath : currentPath + '/';
+  try {
+    await fetch('/genre?path=' + encodeURIComponent(dir + file.name) + '&genre=' + genre, { method: 'POST' });
+  } catch (e) {
+    console.warn('genre tag failed', e);
+  }
+}
+
 // Upload file via HTTP (fallback method)
 function uploadFileHTTP(file, onProgress, onComplete, onError) {
   return new Promise((resolve, reject) => {
@@ -5851,6 +5866,7 @@ async function uploadFile() {
       } else {
         await uploadFileHTTP(file, onProgress, null, null);
       }
+      await tagUploadedGenre(file);
       // Ensure progress bar shows 100% before moving to next file
       progressFill.style.width = '100%';
       progressText.textContent = `Upload complete: ${file.name}`;
@@ -5870,6 +5886,7 @@ async function uploadFile() {
         // Retry this file with HTTP
         try {
           await uploadFileHTTP(file, onProgress, null, null);
+          await tagUploadedGenre(file);
           onComplete();
         } catch (httpError) {
           onError(httpError.message);

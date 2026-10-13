@@ -98,6 +98,7 @@ class CrossPointWebServer {
   void handleUpload(UploadState& state) const;
   void handleUploadPost(UploadState& state) const;
   void handleCreateFolder() const;
+  void handleSetGenre() const;
   void handleRename() const;
   void handleMove() const;
   void handleDelete() const;

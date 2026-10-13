@@ -1,5 +1,7 @@
 #include "CrossPointWebServer.h"
 
+#include "util/BookGenre.h"
+
 #include <ArduinoJson.h>
 #include <FsHelpers.h>
 #include <HalFrontlight.h>
@@ -183,6 +185,7 @@ void CrossPointWebServer::begin() {
 
   // Upload endpoint with special handling for multipart form data
   server->on("/upload", HTTP_POST, [this] { handleUploadPost(upload); }, [this] { handleUpload(upload); });
+  server->on("/genre", HTTP_POST, [this] { handleSetGenre(); });
 
   // Create folder endpoint
   server->on("/mkdir", HTTP_POST, [this] { handleCreateFolder(); });
@@ -963,6 +966,23 @@ void CrossPointWebServer::handleUploadPost(UploadState& state) const {
     const String error = state.error.isEmpty() ? "Unknown error during upload" : state.error;
     server->send(400, "text/plain", error);
   }
+}
+
+// Pixel theme: tag an uploaded book's genre (BookGenre), sent by the Files page after each upload.
+void CrossPointWebServer::handleSetGenre() const {
+  if (!server->hasArg("path") || !server->hasArg("genre")) {
+    server->send(400, "text/plain", "Missing path or genre");
+    return;
+  }
+  String path = server->arg("path");
+  if (!path.startsWith("/")) path = "/" + path;
+  const long genre = server->arg("genre").toInt();
+  if (genre <= BookGenre::UNTAGGED || genre >= BookGenre::GENRE_COUNT || !Storage.exists(path.c_str())) {
+    server->send(400, "text/plain", "Invalid genre or path");
+    return;
+  }
+  BookGenre::set(path.c_str(), static_cast<uint8_t>(genre));
+  server->send(200, "text/plain", "ok");
 }
 
 void CrossPointWebServer::handleCreateFolder() const {
