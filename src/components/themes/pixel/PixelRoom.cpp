@@ -168,7 +168,7 @@ void classLayers(Grid& g, const uint8_t genre, const uint8_t level) {
 
 #undef LAYER
 
-void drawCat(const GfxRenderer& r, const CatState& cat) {
+void drawCat(const GfxRenderer& r, const CatState& cat, const int originX = kCatX, const int originY = kCatY) {
   Grid g = cat.level == 0 ? fromRows(kSleep) : fromRows(kSit);
   if (cat.level > 0) {
     if (cat.genre > BookGenre::UNTAGGED && cat.genre < BookGenre::GENRE_COUNT)
@@ -176,10 +176,10 @@ void drawCat(const GfxRenderer& r, const CatState& cat) {
     else
       plainLayers(g, cat.level);
   }
-  r.fillRect(kCatX, kCatY, kCatCells * kCell, kCatCells * kCell, false);
+  r.fillRect(originX, originY, kCatCells * kCell, kCatCells * kCell, false);
   for (int y = 0; y < kCatCells; ++y)
     for (int x = 0; x < kCatCells; ++x)
-      if (g[y][x]) r.fillRect(kCatX + x * kCell, kCatY + y * kCell, kCell, kCell, true);
+      if (g[y][x]) r.fillRect(originX + x * kCell, originY + y * kCell, kCell, kCell, true);
 }
 
 void drawRoomArt(const GfxRenderer& r) {
@@ -379,6 +379,19 @@ void drawBootScene(const GfxRenderer& r, const char* version) {
   }
   if (version && *version) {
     r.drawText(SMALL_FONT_ID, (w - r.getTextWidth(SMALL_FONT_ID, version)) / 2, cardY + cardH - 26, version);
+  }
+}
+
+void drawEmptyState(const GfxRenderer& r, const int centerX, const int top, const char* message) {
+  CatState sleepy;
+  constexpr int catSize = kCatCells * kCell;
+  drawCat(r, sleepy, centerX - catSize / 2, top);
+  // a little rug under the cat
+  r.fillRect(centerX - 70, top + catSize + 2, 140, 3, true);
+  for (int x = centerX - 60; x <= centerX + 56; x += 12) r.fillRect(x, top + catSize + 6, 4, 6, true);
+  if (message && *message) {
+    const int w = r.getTextWidth(UI_12_FONT_ID, message);
+    r.drawText(UI_12_FONT_ID, centerX - w / 2, top + catSize + 28, message);
   }
 }
 

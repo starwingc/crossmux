@@ -1,5 +1,7 @@
 #include "FileBrowserActivity.h"
 
+#include "components/themes/pixel/PixelRoom.h"
+
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -753,8 +755,13 @@ void FileBrowserActivity::buildScreen(UiScreen& screen) {
   }
 
   if (files.empty()) {
-    screen.centeredText(mode == Mode::PickFirmware ? tr(STR_NO_BIN_FILES) : tr(STR_NO_FILES_FOUND),
-                        screen.theme().bodyText);
+    const char* message = mode == Mode::PickFirmware ? tr(STR_NO_BIN_FILES) : tr(STR_NO_FILES_FOUND);
+    if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::PIXEL) {
+      const fui::Rect body = screen.body();
+      PixelRoom::drawEmptyState(renderer, body.x + body.width / 2, body.y + body.height / 2 - 90, message);
+      return;
+    }
+    screen.centeredText(message, screen.theme().bodyText);
     return;
   }
 

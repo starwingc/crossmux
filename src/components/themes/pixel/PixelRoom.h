@@ -41,6 +41,8 @@ void draw(const GfxRenderer& renderer, int selected, const CatState& cat);
 void drawSleepScene(const GfxRenderer& renderer, const CatState& cat);
 // Boot splash: the study with a pixel-lettered CROSSMUX card.
 void drawBootScene(const GfxRenderer& renderer, const char* version);
+// Empty list: the sleeping cat on a rug, with a message under it.
+void drawEmptyState(const GfxRenderer& renderer, int centerX, int top, const char* message);
 // Card shown after tapping the cat.
 void drawCatCard(const GfxRenderer& renderer, const CatState& cat);
 
