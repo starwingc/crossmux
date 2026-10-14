@@ -1,7 +1,6 @@
 #include "FileBrowserActivity.h"
 
-#include "components/themes/pixel/PixelRoom.h"
-
+#include <Bitmap.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -9,6 +8,7 @@
 #include <Memory.h>
 
 #include <algorithm>
+#include <cctype>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -21,8 +21,11 @@
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
 #include "components/icons/inx_library.h"
+#include "components/themes/pixel/PixelRoom.h"
+#include "components/themes/pixel/PixelShelf.h"
 #include "fontIds.h"
 #include "util/BookCacheUtils.h"
+#include "util/BookCoverLoader.h"
 #include "util/FileEditUtils.h"
 
 namespace fui = freeink::ui;
@@ -32,6 +35,9 @@ constexpr unsigned long GO_HOME_MS = 1000;
 constexpr size_t NAME_BUFFER_SIZE = 500;
 constexpr size_t MAX_COMPONENT_BYTES = 255;
 constexpr char MOVE_HERE_ENTRY[] = "\x01";
+constexpr int kShelfColumns = 3;
+constexpr int kShelfRows = 2;
+constexpr int kShelfPerPage = kShelfColumns * kShelfRows;
 
 std::string cleanEntryName(std::string entry) {
   if (!entry.empty() && entry.back() == '/') entry.pop_back();
@@ -119,6 +125,8 @@ void FileBrowserActivity::loadFiles() {
 // ListItem) per file each time it's called.
 void FileBrowserActivity::rebuildRowItems() {
   rowsUseFileIcons = UITheme::getInstance().getTheme().showsFileIcons();
+  // One byte per entry; the vector is rebuilt with `files` and freed in onExit().
+  shelfCovers.assign(usesShelfLayout() ? files.size() : 0, ShelfCover::Unchecked);
   rowNames.resize(files.size());
   rowExtensions.resize(files.size());
   rowItems.clear();
@@ -166,6 +174,121 @@ bool FileBrowserActivity::usesIconLayout() const {
   return mode == Mode::Books && browserState == BrowserState::Browsing && UITheme::getInstance().hasMainTabs() &&
          SETTINGS.uiTheme != CrossPointSettings::UI_THEME::PIXEL &&
          InxGridGeometry::layoutFrom(SETTINGS.inxLibraryLayout) == InxItemLayout::Icons;
+}
+
+bool FileBrowserActivity::usesShelfLayout() const {
+  return mode == Mode::Books && browserState == BrowserState::Browsing &&
+         SETTINGS.uiTheme == CrossPointSettings::UI_THEME::PIXEL;
+}
+
+int FileBrowserActivity::shelfPageStart() const {
+  const int selected = nav.selected;
+  if (selected <= 0 || files.empty()) return 0;
+  return std::min(selected, listCount() - 1) / kShelfPerPage * kShelfPerPage;
+}
+
+void FileBrowserActivity::drawShelfGrid(UiScreen& screen, const fui::Rect rect) {
+  const int start = shelfPageStart();
+  const int pages = (listCount() + kShelfPerPage - 1) / kShelfPerPage;
+  constexpr int dotsH = 24;
+  const int rowH = (rect.height - (pages > 1 ? dotsH : 0)) / kShelfRows;
+  const int cardH = std::min(PixelShelf::kCardH, rowH - PixelShelf::kPlankH - 18);
+  const int cardW = PixelShelf::kCardW;
+  const int gap = (rect.width - kShelfColumns * cardW) / (kShelfColumns + 1);
+  const int thumbHeight =
+      InxCoverGeometry::thumbnailHeightForCropFill(PixelShelf::coverRect(Rect{0, 0, cardW, cardH}).height);
+  if (thumbHeight != shelfThumbHeight) {
+    shelfThumbHeight = thumbHeight;
+    std::fill(shelfCovers.begin(), shelfCovers.end(), ShelfCover::Unchecked);
+  }
+  const bool showSelection = showMainTabContentSelection();
+
+  for (int row = 0; row < kShelfRows; ++row) {
+    const int plankY = rect.y + row * rowH + 14 + cardH;
+    for (int column = 0; column < kShelfColumns; ++column) {
+      const int index = start + row * kShelfColumns + column;
+      if (index >= listCount()) break;
+      const Rect card{rect.x + gap + column * (cardW + gap), plankY - cardH, cardW, cardH};
+      const std::string& entry = files[index];
+      if (entry.back() == '/') {
+        PixelShelf::drawFolderCard(renderer, card, rowNames[index].c_str());
+      } else {
+        ShelfCover& state = shelfCovers[index];
+        std::string thumb;
+        if (state == ShelfCover::Unchecked || state == ShelfCover::Ready) {
+          switch (BookCoverLoader::cachedThumbnail(joinPath(basepath, entry), shelfThumbHeight, &thumb)) {
+            case BookCoverLoader::ThumbnailState::Ready:
+              state = ShelfCover::Ready;
+              break;
+            case BookCoverLoader::ThumbnailState::Missing:
+              state = ShelfCover::Missing;
+              break;
+            case BookCoverLoader::ThumbnailState::None:
+              state = ShelfCover::None;
+              break;
+          }
+        }
+        bool drawn = false;
+        if (state == ShelfCover::Ready) {
+          HalFile file;
+          if (Storage.openFileForRead("SHELF", thumb, file)) {
+            Bitmap bitmap(file);
+            const Rect cover = PixelShelf::coverRect(card);
+            drawn = bitmap.parseHeaders() == BmpReaderError::Ok &&
+                    renderer.drawBitmapCropToFill(bitmap, cover.x, cover.y, cover.width, cover.height);
+          }
+          if (!drawn) state = ShelfCover::None;
+        }
+        if (drawn) {
+          PixelShelf::drawCardFrame(renderer, card);
+        } else {
+          std::string format = rowExtensions[index].empty() ? std::string() : rowExtensions[index].substr(1);
+          for (char& c : format) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+          PixelShelf::drawNoCoverCard(renderer, card, rowNames[index].c_str(), format.c_str());
+        }
+      }
+      if (showSelection && index == nav.selected) PixelShelf::drawCardSelection(renderer, card);
+      screen.frame().hit(fui::Rect{static_cast<int16_t>(card.x), static_cast<int16_t>(card.y),
+                                   static_cast<int16_t>(card.width), static_cast<int16_t>(card.height)},
+                         ACTION_ROW, static_cast<int16_t>(index), fui::InputTouch | fui::InputLongPress);
+    }
+    PixelShelf::drawPlank(renderer, rect.x + 12, rect.width - 24, plankY);
+  }
+
+  if (pages > 1) {
+    constexpr int dot = 10;
+    constexpr int dotGap = 12;
+    const int page = start / kShelfPerPage;
+    const int shown = std::min(pages, 15);
+    const int first = std::clamp(page - shown / 2, 0, pages - shown);
+    const int startX = rect.x + (rect.width - (shown * dot + (shown - 1) * dotGap)) / 2;
+    const int dotY = rect.y + rect.height - dotsH + (dotsH - dot) / 2;
+    for (int i = 0; i < shown; ++i) {
+      const int dx = startX + i * (dot + dotGap);
+      if (first + i == page)
+        renderer.fillRect(dx, dotY, dot, dot, true);
+      else
+        renderer.drawRect(dx, dotY, dot, dot, 2, true);
+    }
+  }
+}
+
+bool FileBrowserActivity::prepareNextShelfCover() {
+  if (!usesShelfLayout() || shelfThumbHeight <= 0) return false;
+  const int start = shelfPageStart();
+  const int end = std::min(listCount(), start + kShelfPerPage);
+  for (int index = start; index < end && index < static_cast<int>(shelfCovers.size()); ++index) {
+    if (shelfCovers[index] != ShelfCover::Missing) continue;
+    {
+      GfxRenderer::FrameBufferLoan loan(renderer);
+      shelfCovers[index] = BookCoverLoader::ensureThumbnail(joinPath(basepath, files[index]), shelfThumbHeight).empty()
+                               ? ShelfCover::None
+                               : ShelfCover::Ready;
+    }
+    requestUpdate();
+    return true;
+  }
+  return false;
 }
 
 void FileBrowserActivity::drawIconGrid(UiScreen& screen, const fui::Rect rect) const {
@@ -236,6 +359,8 @@ void FileBrowserActivity::onExit() {
   rowExtensions.clear();
   gridLabels.clear();
   rowItems.clear();
+  shelfCovers.clear();
+  shelfCovers.shrink_to_fit();
   fileNameBuffer.reset();
   moveSourcePath.clear();
   moveSourceEntry.clear();
@@ -620,6 +745,16 @@ void FileBrowserActivity::activateSelected() {
 bool FileBrowserActivity::handleCustomInput() {
   if (editPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return true;
 
+  if (usesShelfLayout()) {
+    const auto swipe = mappedInput.wasSwipe();
+    if (swipe != MappedInputManager::SwipeDir::None && !mappedInput.wasBackGesture()) {
+      const bool forward = swipe == MappedInputManager::SwipeDir::Left || swipe == MappedInputManager::SwipeDir::Up;
+      moveSelectionTo(forward ? ButtonNavigator::nextPageIndex(nav.selected, listCount(), kShelfPerPage)
+                              : ButtonNavigator::previousPageIndex(nav.selected, listCount(), kShelfPerPage));
+      return true;
+    }
+  }
+
   if (usesIconLayout()) {
     const auto swipe = mappedInput.wasSwipe();
     if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Down) {
@@ -773,6 +908,14 @@ void FileBrowserActivity::buildScreen(UiScreen& screen) {
     rebuildRowItems();
   }
 
+  if (usesShelfLayout()) {
+    nav.visibleRows = kShelfPerPage;
+    nav.drawnRows = kShelfPerPage;
+    nav.top = shelfPageStart();
+    drawShelfGrid(screen, screen.body());
+    return;
+  }
+
   if (usesIconLayout()) {
     nav.visibleRows = InxGridGeometry::itemsPerPage;
     nav.drawnRows = InxGridGeometry::itemsPerPage;
@@ -810,9 +953,9 @@ void FileBrowserActivity::drawChrome() {
 
   std::string folderName = browserState == BrowserState::ChoosingMoveDestination ? std::string(tr(STR_MOVE))
                            : mode == Mode::PickFirmware ? std::string(tr(STR_SELECT_FIRMWARE_FILE))
-                           : mode == Mode::PickPng      ? std::string(tr(STR_CUSTOM_IMAGE))
-                                                        : ((basepath == "/") ? std::string(tr(STR_SD_CARD))
-                                                                             : basepath.substr(basepath.rfind('/') + 1));
+                           : mode == Mode::PickPng ? std::string(tr(STR_CUSTOM_IMAGE))
+                                                   : ((basepath == "/") ? std::string(tr(STR_SD_CARD))
+                                                                        : basepath.substr(basepath.rfind('/') + 1));
   // Header via GUI.drawHeader (already FreeInkUI-themed) for the battery
   // indicator; the rest of the screen renders through the app.
   drawPageHeader(Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, folderName.c_str());
@@ -838,6 +981,7 @@ void FileBrowserActivity::drawFooter() {
 void FileBrowserActivity::render(RenderLock&& lock) {
   if (editPopup.processRender(renderer, mappedInput)) return;
   UiListActivity::render(std::move(lock));
+  prepareNextShelfCover();
 }
 
 size_t FileBrowserActivity::findEntry(const std::string& name) const {

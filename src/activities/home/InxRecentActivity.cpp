@@ -1,7 +1,5 @@
 #include "InxRecentActivity.h"
 
-#include "util/BookGenre.h"
-
 #include <Bitmap.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -19,8 +17,10 @@
 #include "components/icons/cover.h"
 #include "components/themes/inx/InxTheme.h"
 #include "components/themes/pixel/PixelAppIcons.h"
+#include "components/themes/pixel/PixelShelf.h"
 #include "fontIds.h"
 #include "util/BookCoverLoader.h"
+#include "util/BookGenre.h"
 #include "util/ReadingStatsAnalytics.h"
 #include "util/TimeUtils.h"
 
@@ -392,13 +392,13 @@ void InxRecentActivity::activateRoomSpot(const int index) {
       activityManager.goToReadingStats();
       return;
     case Action::Recent:
-      activityManager.goToRecentBooks();
-      return;
-    case Action::Library:
       shelfOpen = true;
       shelfPage = 0;
       shelfSelected = 0;
       requestUpdate();
+      return;
+    case Action::Library:
+      activityManager.goToFileBrowser();
       return;
     case Action::Settings:
       activityManager.goToSettings();
@@ -772,8 +772,8 @@ void InxRecentActivity::render(RenderLock&&) {
 // --- Pixel bookshelf ---------------------------------------------------------
 namespace {
 constexpr int kShelfHeaderH = 84;
-constexpr int kShelfCoverW = 128;
-constexpr int kShelfCoverH = 188;
+constexpr int kShelfCoverW = PixelShelf::kCardW;
+constexpr int kShelfCoverH = PixelShelf::kCardH;
 constexpr int kTopCoverX = 28;
 constexpr int kTopCoverY = 100;
 constexpr int kInfoX = 178;
@@ -813,25 +813,7 @@ void drawPixelArt(const GfxRenderer& r, const char* const* rows, const int x, co
       if (rows[row][col] == '#') r.fillRect(x + col * scale, y + row * scale, scale, scale, ink);
 }
 
-// A wooden plank: dithered top face, framed front edge, hard shadow below.
-void drawPlank(const GfxRenderer& r, const int y) {
-  constexpr int x = 12;
-  constexpr int w = 456;
-  r.fillRectDither(x + 10, y, w - 20, 10, Color::DarkGray);
-  r.drawLine(x + 10, y, x + w - 11, y, true);
-  r.fillRect(x, y + 10, w, 20, false);
-  r.drawRect(x, y + 10, w, 20, 2, true);
-  r.fillRect(x + 4, y + 30, w - 4, 4, true);
-}
-
-// Our own no-cover card: double frame, title, an open book and a dotted ornament.
-void drawNoCover(const GfxRenderer& r, const char* title, const int x, const int y) {
-  r.fillRect(x, y, kShelfCoverW, kShelfCoverH, false);
-  r.drawRect(x + 6, y + 6, kShelfCoverW - 12, kShelfCoverH - 12, 1, true);
-  UITheme::drawCenteredWrappedText(r, Rect{x + 12, y + 16, kShelfCoverW - 24, 56}, UI_10_FONT_ID, title, 2);
-  drawPixelArt(r, PixelAppIcons::kOpenBook, x + (kShelfCoverW - 48) / 2, y + 82, 3);
-  for (int dx = 18; dx < kShelfCoverW - 18; dx += 8) r.fillRect(x + dx, y + kShelfCoverH - 30, 4, 2, true);
-}
+void drawPlank(const GfxRenderer& r, const int y) { PixelShelf::drawPlank(r, 12, 456, y); }
 }  // namespace
 
 int InxRecentActivity::shelfPageCount() const {
@@ -888,7 +870,8 @@ bool InxRecentActivity::handleShelfInput() {
       target = kTargetCurrent;
     }
     for (int slot = 0; slot < kSlots; ++slot) {
-      if (inside(Rect{slotX(slot), kLowerCoverY - 26, kShelfCoverW, kShelfCoverH + 26})) target = kTargetFirstSlot + slot;
+      if (inside(Rect{slotX(slot), kLowerCoverY - 26, kShelfCoverW, kShelfCoverH + 26}))
+        target = kTargetFirstSlot + slot;
     }
     for (int tile = 0; tile < 3; ++tile) {
       if (inside(Rect{tileX(tile), kTileY, kTileW, kTileH})) target = kTargetFirstTile + tile;
@@ -929,16 +912,19 @@ bool InxRecentActivity::handleShelfInput() {
 }
 
 void InxRecentActivity::drawShelfCover(const int bookIndex, const int x, const int y) {
-  renderer.fillRect(x + 4, y + 4, kShelfCoverW, kShelfCoverH, true);
-  const Rect bounds{x, y, kShelfCoverW, kShelfCoverH};
-  if (!drawBookCover(bookIndex, bounds)) drawNoCover(renderer, titleOf((*books)[bookIndex]), x, y);
-  renderer.drawRect(x, y, kShelfCoverW, kShelfCoverH, 2, true);
+  const Rect card{x, y, kShelfCoverW, kShelfCoverH};
+  if (drawBookCover(bookIndex, PixelShelf::coverRect(card))) {
+    PixelShelf::drawCardFrame(renderer, card);
+  } else {
+    const RecentBook& book = (*books)[bookIndex];
+    PixelShelf::drawNoCoverCard(renderer, card, titleOf(book), formatOf(book.path).c_str());
+  }
 }
 
 void InxRecentActivity::drawShelf() {
   const int w = renderer.getScreenWidth();
-  GUI.drawHeader(renderer, Rect{0, 0, w, kShelfHeaderH}, tr(STR_ROOM_SHELF));
-  setThumbnailHeight(InxCoverGeometry::thumbnailHeightForCropFill(kShelfCoverH));
+  GUI.drawHeader(renderer, Rect{0, 0, w, kShelfHeaderH}, tr(STR_MENU_RECENT_BOOKS));
+  setThumbnailHeight(PixelShelf::coverThumbHeight());
 
   // Top shelf: the book in hand.
   if (!books || books->empty()) {
@@ -993,7 +979,7 @@ void InxRecentActivity::drawShelf() {
     renderer.drawText(SMALL_FONT_ID, x + 20, kLowerCoverY - 23, percent, false);
     drawShelfCover(index, x, kLowerCoverY);
     if (shelfSelected == kTargetFirstSlot + slot) {
-      renderer.drawRoundedRect(x - 6, kLowerCoverY - 6, kShelfCoverW + 16, kShelfCoverH + 16, 3, 8, true);
+      PixelShelf::drawCardSelection(renderer, Rect{x, kLowerCoverY, kShelfCoverW, kShelfCoverH});
     }
   }
   drawPlank(renderer, kLowerCoverY + kShelfCoverH);

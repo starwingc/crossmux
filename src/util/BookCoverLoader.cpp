@@ -48,6 +48,33 @@ std::string ensureCachedCover(const std::string& path, const bool emptyIsTermina
 
 }  // namespace
 
+ThumbnailState cachedThumbnail(const std::string& bookPath, const int height, std::string* path) {
+  if (path) path->clear();
+  if (height <= 0) return ThumbnailState::None;
+  std::string thumb;
+  bool emptyIsTerminal = false;
+  if (FsHelpers::hasEpubExtension(bookPath)) {
+    Epub epub(bookPath, "/.crosspoint");
+    thumb = epub.getThumbBmpPath(height);
+    emptyIsTerminal = !epub.hasCoverOverride();
+  } else if (FsHelpers::hasXtcExtension(bookPath)) {
+    Xtc xtc(bookPath, "/.crosspoint");
+    thumb = xtc.getThumbBmpPath(height);
+  } else {
+    return ThumbnailState::None;
+  }
+  switch (inspectCachedCover(thumb, emptyIsTerminal)) {
+    case CachedCoverState::Ready:
+      if (path) *path = std::move(thumb);
+      return ThumbnailState::Ready;
+    case CachedCoverState::Terminal:
+      return ThumbnailState::None;
+    case CachedCoverState::Missing:
+      break;
+  }
+  return ThumbnailState::Missing;
+}
+
 std::string ensureThumbnail(const std::string& bookPath, const int height, bool* generated) {
   if (generated) *generated = false;
   if (height <= 0 || !Storage.exists(bookPath.c_str())) return "";

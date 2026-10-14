@@ -65,6 +65,16 @@ class FileBrowserActivity final : public UiListActivity {
   bool usesIconLayout() const;
   void drawIconGrid(UiScreen& screen, freeink::ui::Rect rect) const;
 
+  // Pixel theme: the library as a bookshelf, book cards standing on planks. Covers
+  // come from cached thumbnails; missing ones are generated one per repaint.
+  enum class ShelfCover : uint8_t { Unchecked, Ready, Missing, None };
+  std::vector<ShelfCover> shelfCovers;  // one per entry in `files`
+  int shelfThumbHeight = 0;
+  bool usesShelfLayout() const;
+  int shelfPageStart() const;
+  void drawShelfGrid(UiScreen& screen, freeink::ui::Rect rect);
+  bool prepareNextShelfCover();
+
   int listCount() const override { return static_cast<int>(files.size()); }
   void buildScreen(UiScreen& screen) override;
   void activateIndex(int index) override;
