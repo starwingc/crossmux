@@ -46,7 +46,23 @@ class InxRecentActivity final : public Activity {
   void activateRoomSpot(int index);
   bool handleRoomInput();
   void animateCat();
+  // Bookshelf view (the room's shelf): the current book on the top shelf, three recent
+  // books per page on the lower one, and Library / Transfer / Settings tiles.
+  bool shelfOpen = false;
+  int shelfPage = 0;
+  int shelfSelected = 0;  // ShelfTarget
+  int shelfPageCount() const;
+  int shelfBookAt(int slot) const;  // book index on the lower shelf slot 0..2, -1 if empty
+  bool shelfTargetValid(int target) const;
+  void activateShelfTarget(int target);
+  void drawShelf();
+  void drawShelfCover(int bookIndex, int x, int y);
+  bool handleShelfInput();
   uint8_t catFrame = 0;
+  uint8_t catAction = 0;       // PixelRoom::CatAction playing after a tap
+  uint8_t catActionStep = 0;
+  uint8_t catNextAction = 0;   // taps cycle through the actions
+  uint32_t roomClockMinute = 0;  // the wall clock repaints when the minute turns
   unsigned long catFrameAt = 0;     // when the current idle frame went up
   unsigned long roomActiveAt = 0;   // last selection/card change; the cat settles 2 min after
   const std::vector<RecentBook>* books = nullptr;

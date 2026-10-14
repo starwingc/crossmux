@@ -5,7 +5,9 @@
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <cmath>
 #include <cstring>
+#include <ctime>
 #include <iterator>
 #include <string>
 #include <utility>
@@ -190,17 +192,57 @@ void animate(Grid& g, const bool asleep) {
   }
 }
 
+// Tap actions, painted over the sitting cat. Two frames each, alternated by the caller.
+void actionLayers(Grid& g, const uint8_t action, const uint8_t frame) {
+  switch (action) {
+    case CAT_LICK:  // paw up at the mouth, tongue out on the first frame
+      paint(g, LAYER(6, 17, "__"));  // that paw is no longer on the floor
+      paint(g, LAYER(5, 13, "#", "#"));
+      if (frame == 0) {
+        paint(g, LAYER(6, 10, "##", "##"));
+        paint(g, LAYER(8, 11, "#"));
+      } else {
+        paint(g, LAYER(6, 11, "##", "##"));
+      }
+      break;
+    case CAT_SCRATCH:  // hind leg up behind the ear
+      if (frame == 0)
+        paint(g, LAYER(13, 5, ".##", ".##", "..#", "..#", "..#", "..#", "..#", ".#.", "#.."));
+      else
+        paint(g, LAYER(13, 7, ".##", ".##", "..#", "..#", "..#", ".#.", "#.."));
+      break;
+    case CAT_YAWN:  // mouth opening wide
+      if (frame == 0)
+        paint(g, LAYER(8, 11, "##"));
+      else
+        paint(g, LAYER(7, 10, "####", "#__#", "####"));
+      break;
+    case CAT_WAG:  // tail swings low and back
+      if (frame == 0) {
+        paint(g, LAYER(15, 13, "..__", ".__.", "_..."));
+        paint(g, LAYER(15, 14, "...#", "..#.", "##.."));
+      }
+      break;
+    default:
+      break;
+  }
+}
+
 #undef LAYER
 
 void drawCat(const GfxRenderer& r, const CatState& cat, const int originX = kCatX, const int originY = kCatY) {
-  Grid g = cat.level == 0 ? fromRows(kSleep) : fromRows(kSit);
+  const bool asleep = cat.level == 0 && cat.action == CAT_IDLE;  // a tap wakes the cat for its action
+  Grid g = asleep ? fromRows(kSleep) : fromRows(kSit);
   if (cat.level > 0) {
     if (cat.genre > BookGenre::UNTAGGED && cat.genre < BookGenre::GENRE_COUNT)
       classLayers(g, cat.genre, cat.level);
     else
       plainLayers(g, cat.level);
   }
-  if (cat.frame != 0) animate(g, cat.level == 0);
+  if (cat.action != CAT_IDLE)
+    actionLayers(g, cat.action, cat.frame);
+  else if (cat.frame != 0)
+    animate(g, asleep);
   // Paper inside the outline stays opaque (so the cat reads over the dithered rug); paper
   // reachable from the sprite's border is left transparent.
   Grid outside{};
@@ -235,6 +277,8 @@ void drawCat(const GfxRenderer& r, const CatState& cat, const int originX = kCat
       if (g[y][x] || !outside[y][x]) r.fillRect(originX + x * kCell, originY + y * kCell, kCell, kCell, g[y][x]);
 }
 
+void drawClockHands(const GfxRenderer& r);
+
 void drawRoomArt(const GfxRenderer& r) {
   using namespace PixelRoomArt;
   const int rows = std::min(kRows, (r.getScreenHeight() - kArtTop + kArtScale - 1) / kArtScale);
@@ -252,6 +296,37 @@ void drawRoomArt(const GfxRenderer& r) {
       x += run;
     }
   }
+  drawClockHands(r);
+}
+
+// The wall clock shows the real time. Its face is blanked by gen_room.py around art cell
+// (76, 22); hands are drawn here with square pixel brushes.
+void drawClockHands(const GfxRenderer& r) {
+  constexpr int kClockCellX = 76;
+  constexpr int kClockCellY = 22;
+  constexpr float kCx = kClockCellX * kArtScale + kArtScale / 2.0f;
+  constexpr float kCy = kArtTop + kClockCellY * kArtScale + kArtScale / 2.0f;
+  int hour = 10;
+  int minute = 10;
+  std::tm local{};
+  const uint32_t now = TimeUtils::getAuthoritativeTimestamp();
+  if (TimeUtils::isClockValid(now) && TimeUtils::getLocalDateTime(now, local)) {
+    hour = local.tm_hour;
+    minute = local.tm_min;
+  }
+  const auto hand = [&r](const float turns, const float length, const int brush) {
+    const float a = turns * 2.0f * static_cast<float>(M_PI);
+    const float dx = std::sin(a);
+    const float dy = -std::cos(a);
+    for (float s = 0; s <= length; s += 1.0f) {
+      const int x = static_cast<int>(std::lround(kCx + dx * s)) - brush / 2;
+      const int y = static_cast<int>(std::lround(kCy + dy * s)) - brush / 2;
+      r.fillRect(x, y, brush, brush, true);
+    }
+  };
+  hand((hour % 12 + minute / 60.0f) / 12.0f, 12.0f, 5);
+  hand(minute / 60.0f, 19.0f, 3);
+  r.fillRect(static_cast<int>(kCx) - 4, static_cast<int>(kCy) - 4, 9, 9, true);  // hub
 }
 
 void drawTag(const GfxRenderer& r, const int x, const int y, const char* text, const bool selected) {

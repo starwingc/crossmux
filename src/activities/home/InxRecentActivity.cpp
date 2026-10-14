@@ -8,6 +8,7 @@
 #include <I18n.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <string>
 
@@ -17,9 +18,11 @@
 #include "components/UITheme.h"
 #include "components/icons/cover.h"
 #include "components/themes/inx/InxTheme.h"
+#include "components/themes/pixel/PixelAppIcons.h"
 #include "fontIds.h"
 #include "util/BookCoverLoader.h"
 #include "util/ReadingStatsAnalytics.h"
+#include "util/TimeUtils.h"
 
 namespace {
 constexpr int kGap = 8;
@@ -392,7 +395,10 @@ void InxRecentActivity::activateRoomSpot(const int index) {
       activityManager.goToRecentBooks();
       return;
     case Action::Library:
-      activityManager.goToFileBrowser();
+      shelfOpen = true;
+      shelfPage = 0;
+      shelfSelected = 0;
+      requestUpdate();
       return;
     case Action::Settings:
       activityManager.goToSettings();
@@ -430,6 +436,26 @@ bool InxRecentActivity::handleRoomInput() {
   }
   if (mappedInput.wasScreenTapped(x, y)) {
     const int hit = PixelRoom::spotAt(x, y);
+    if (hit >= 0 && PixelRoom::spot(hit).action == PixelRoom::Action::Cat) {
+      // The cat itself plays its next trick; its "打卡" tag (above it) opens the card.
+      roomSelected = hit;
+      catAction = static_cast<uint8_t>(PixelRoom::CAT_LICK + catNextAction);
+      catNextAction = static_cast<uint8_t>((catNextAction + 1) % (PixelRoom::CAT_ACTION_COUNT - 1));
+      catActionStep = 0;
+      catFrame = 0;
+      catFrameAt = millis();
+      requestUpdate();
+      return true;
+    }
+    for (int i = 0; hit < 0 && i < PixelRoom::spotCount(); ++i) {
+      const PixelRoom::Spot& s = PixelRoom::spot(i);
+      if (s.action == PixelRoom::Action::Cat && x >= s.tagX - 6 && x < s.tagX + 84 && y >= s.tagY - 6 &&
+          y < s.tagY + 40) {
+        roomSelected = i;
+        activateRoomSpot(i);
+        return true;
+      }
+    }
     if (hit >= 0) {
       roomSelected = hit;
       activateRoomSpot(hit);
@@ -456,6 +482,19 @@ bool InxRecentActivity::handleRoomInput() {
 void InxRecentActivity::animateCat() {
   constexpr unsigned long kSettleMs = 120000;
   const unsigned long now = millis();
+  if (catAction != PixelRoom::CAT_IDLE) {  // a tapped trick: four alternating frames, 0.7 s each
+    constexpr uint8_t kActionSteps = 4;    // (slower steps would merge with the panel refresh)
+    if (now - catFrameAt < 700) return;
+    catFrameAt = now;
+    if (++catActionStep >= kActionSteps) {
+      catAction = PixelRoom::CAT_IDLE;
+      catFrame = 0;
+    } else {
+      catFrame = catActionStep % 2;
+    }
+    requestUpdate();
+    return;
+  }
   if (catCardOpen || now - roomActiveAt > kSettleMs) {
     if (catFrame != 0 && !catCardOpen) {
       catFrame = 0;
@@ -474,11 +513,20 @@ void InxRecentActivity::animateCat() {
 
 void InxRecentActivity::loop() {
   if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::PIXEL) {
+    if (shelfOpen) {
+      handleShelfInput();
+      return;
+    }
     const int before = roomSelected;
     const bool cardBefore = catCardOpen;
     handleRoomInput();
     if (roomActiveAt == 0 || roomSelected != before || catCardOpen != cardBefore) roomActiveAt = millis();
     animateCat();
+    if (!catCardOpen) {
+      const uint32_t minute = TimeUtils::getAuthoritativeTimestamp() / 60;
+      if (roomClockMinute != 0 && minute != roomClockMinute) requestUpdate();
+      roomClockMinute = minute;
+    }
     return;
   }
   if (!books || books->empty()) return;
@@ -667,8 +715,15 @@ void InxRecentActivity::drawCover(const Rect& content) {
 void InxRecentActivity::render(RenderLock&&) {
   renderer.clearScreen();
   if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::PIXEL) {
+    if (shelfOpen) {
+      drawShelf();
+      if (prepareNextMissingCover()) return;
+      renderer.displayBuffer();
+      return;
+    }
     refreshCatState();
     catState.frame = catFrame;
+    catState.action = catAction;
     PixelRoom::draw(renderer, roomSelected, catState);
     if (catCardOpen) PixelRoom::drawCatCard(renderer, catState);
     renderer.displayBuffer();
@@ -712,4 +767,264 @@ void InxRecentActivity::render(RenderLock&&) {
                        SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS);
   if (prepareNextMissingCover()) return;
   renderer.displayBuffer();
+}
+
+// --- Pixel bookshelf ---------------------------------------------------------
+namespace {
+constexpr int kShelfHeaderH = 84;
+constexpr int kShelfCoverW = 128;
+constexpr int kShelfCoverH = 188;
+constexpr int kTopCoverX = 28;
+constexpr int kTopCoverY = 100;
+constexpr int kInfoX = 178;
+constexpr int kLowerCoverY = 372;
+constexpr int kSlotGap = 20;
+constexpr int kTileY = 632;
+constexpr int kTileW = 136;
+constexpr int kTileH = 120;
+constexpr int kTileGap = 16;
+constexpr int kSlots = 3;
+
+// ShelfTarget: 0 = current book, 1..3 = lower-shelf slots, 4..6 = Library / Transfer / Settings.
+constexpr int kTargetCurrent = 0;
+constexpr int kTargetFirstSlot = 1;
+constexpr int kTargetFirstTile = 4;
+constexpr int kTargetCount = 7;
+
+int slotX(const int slot) {
+  const int total = kSlots * kShelfCoverW + (kSlots - 1) * kSlotGap;
+  return (480 - total) / 2 + slot * (kShelfCoverW + kSlotGap);
+}
+int tileX(const int tile) { return 24 + tile * (kTileW + kTileGap); }
+const Rect kContinueButton{kInfoX, 230, 200, 54};
+
+std::string formatOf(const std::string& path) {
+  const size_t dot = path.find_last_of('.');
+  if (dot == std::string::npos || path.size() - dot > 5) return {};
+  std::string ext = path.substr(dot + 1);
+  for (char& c : ext) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+  return ext;
+}
+
+void drawPixelArt(const GfxRenderer& r, const char* const* rows, const int x, const int y, const int scale,
+                  const bool ink = true) {
+  for (int row = 0; row < PixelAppIcons::kSize; ++row)
+    for (int col = 0; col < PixelAppIcons::kSize; ++col)
+      if (rows[row][col] == '#') r.fillRect(x + col * scale, y + row * scale, scale, scale, ink);
+}
+
+// A wooden plank: dithered top face, framed front edge, hard shadow below.
+void drawPlank(const GfxRenderer& r, const int y) {
+  constexpr int x = 12;
+  constexpr int w = 456;
+  r.fillRectDither(x + 10, y, w - 20, 10, Color::DarkGray);
+  r.drawLine(x + 10, y, x + w - 11, y, true);
+  r.fillRect(x, y + 10, w, 20, false);
+  r.drawRect(x, y + 10, w, 20, 2, true);
+  r.fillRect(x + 4, y + 30, w - 4, 4, true);
+}
+
+// Our own no-cover card: double frame, title, an open book and a dotted ornament.
+void drawNoCover(const GfxRenderer& r, const char* title, const int x, const int y) {
+  r.fillRect(x, y, kShelfCoverW, kShelfCoverH, false);
+  r.drawRect(x + 6, y + 6, kShelfCoverW - 12, kShelfCoverH - 12, 1, true);
+  UITheme::drawCenteredWrappedText(r, Rect{x + 12, y + 16, kShelfCoverW - 24, 56}, UI_10_FONT_ID, title, 2);
+  drawPixelArt(r, PixelAppIcons::kOpenBook, x + (kShelfCoverW - 48) / 2, y + 82, 3);
+  for (int dx = 18; dx < kShelfCoverW - 18; dx += 8) r.fillRect(x + dx, y + kShelfCoverH - 30, 4, 2, true);
+}
+}  // namespace
+
+int InxRecentActivity::shelfPageCount() const {
+  const int rest = books ? std::max(0, static_cast<int>(books->size()) - 1) : 0;
+  return std::max(1, (rest + kSlots - 1) / kSlots);
+}
+
+int InxRecentActivity::shelfBookAt(const int slot) const {
+  const int index = 1 + shelfPage * kSlots + slot;
+  return books && index < static_cast<int>(books->size()) ? index : -1;
+}
+
+bool InxRecentActivity::shelfTargetValid(const int target) const {
+  if (target == kTargetCurrent) return books && !books->empty();
+  if (target < kTargetFirstTile) return shelfBookAt(target - kTargetFirstSlot) >= 0;
+  return target < kTargetCount;
+}
+
+void InxRecentActivity::activateShelfTarget(const int target) {
+  if (!shelfTargetValid(target)) return;
+  if (target == kTargetCurrent) {
+    onSelectBook((*books)[0].path);
+  } else if (target < kTargetFirstTile) {
+    onSelectBook((*books)[shelfBookAt(target - kTargetFirstSlot)].path);
+  } else if (target == kTargetFirstTile) {
+    activityManager.goToFileBrowser();
+  } else if (target == kTargetFirstTile + 1) {
+    activityManager.goToFileTransfer();
+  } else {
+    activityManager.goToSettings();
+  }
+}
+
+bool InxRecentActivity::handleShelfInput() {
+  const auto close = [this] {
+    shelfOpen = false;
+    requestUpdate();
+    return true;
+  };
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) return close();
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    activateShelfTarget(shelfSelected);
+    return true;
+  }
+  int x = 0;
+  int y = 0;
+  if (mappedInput.wasScreenTapped(x, y)) {
+    if (y < kShelfHeaderH) return x < 96 ? close() : true;
+    const auto inside = [x, y](const Rect& rect) {
+      return x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height;
+    };
+    int target = -1;
+    if (inside(Rect{kTopCoverX, kTopCoverY, kShelfCoverW, kShelfCoverH}) || inside(kContinueButton)) {
+      target = kTargetCurrent;
+    }
+    for (int slot = 0; slot < kSlots; ++slot) {
+      if (inside(Rect{slotX(slot), kLowerCoverY - 26, kShelfCoverW, kShelfCoverH + 26})) target = kTargetFirstSlot + slot;
+    }
+    for (int tile = 0; tile < 3; ++tile) {
+      if (inside(Rect{tileX(tile), kTileY, kTileW, kTileH})) target = kTargetFirstTile + tile;
+    }
+    if (target >= 0 && shelfTargetValid(target)) {
+      shelfSelected = target;
+      activateShelfTarget(target);
+    }
+    return true;
+  }
+  const auto swipe = mappedInput.wasSwipe();
+  if (swipe == MappedInputManager::SwipeDir::Left || swipe == MappedInputManager::SwipeDir::Right) {
+    const int pages = shelfPageCount();
+    shelfPage = (shelfPage + (swipe == MappedInputManager::SwipeDir::Left ? 1 : pages - 1)) % pages;
+    requestUpdate();
+    return true;
+  }
+  const bool next = mappedInput.wasReleased(MappedInputManager::Button::NavNext);
+  if (next || mappedInput.wasReleased(MappedInputManager::Button::NavPrevious)) {
+    // Walk the targets in reading order; stepping past the last slot of a page turns it.
+    const int pages = shelfPageCount();
+    for (int guard = 0; guard < kTargetCount * (pages + 1); ++guard) {
+      int t = shelfSelected + (next ? 1 : -1);
+      if (next && t == kTargetFirstTile && shelfPage + 1 < pages) {
+        ++shelfPage;
+        t = kTargetFirstSlot;
+      } else if (!next && t == kTargetFirstSlot - 1 && shelfPage > 0) {
+        --shelfPage;
+        t = kTargetFirstTile - 1;
+      }
+      shelfSelected = (t + kTargetCount) % kTargetCount;
+      if (shelfTargetValid(shelfSelected)) break;
+    }
+    requestUpdate();
+    return true;
+  }
+  return false;
+}
+
+void InxRecentActivity::drawShelfCover(const int bookIndex, const int x, const int y) {
+  renderer.fillRect(x + 4, y + 4, kShelfCoverW, kShelfCoverH, true);
+  const Rect bounds{x, y, kShelfCoverW, kShelfCoverH};
+  if (!drawBookCover(bookIndex, bounds)) drawNoCover(renderer, titleOf((*books)[bookIndex]), x, y);
+  renderer.drawRect(x, y, kShelfCoverW, kShelfCoverH, 2, true);
+}
+
+void InxRecentActivity::drawShelf() {
+  const int w = renderer.getScreenWidth();
+  GUI.drawHeader(renderer, Rect{0, 0, w, kShelfHeaderH}, tr(STR_ROOM_SHELF));
+  setThumbnailHeight(InxCoverGeometry::thumbnailHeightForCropFill(kShelfCoverH));
+
+  // Top shelf: the book in hand.
+  if (!books || books->empty()) {
+    PixelRoom::drawEmptyState(renderer, w / 2, kTopCoverY + 8, tr(STR_NO_RECENT_BOOKS));
+  } else {
+    const RecentBook& book = (*books)[0];
+    const ReadingBookStats* stats = statsAt(0);
+    drawShelfCover(0, kTopCoverX, kTopCoverY);
+    const int infoW = w - 24 - kInfoX;
+    const std::string title = renderer.truncatedText(UI_12_FONT_ID, titleOf(book), infoW, EpdFontFamily::BOLD);
+    renderer.drawText(UI_12_FONT_ID, kInfoX, kTopCoverY + 2, title.c_str(), true, EpdFontFamily::BOLD);
+    int lineY = kTopCoverY + 50;
+    const std::string format = formatOf(book.path);
+    const int pillW = format.empty() ? 0 : renderer.getTextWidth(SMALL_FONT_ID, format.c_str()) + 16;
+    if (!book.author.empty()) {
+      const std::string author = renderer.truncatedText(SMALL_FONT_ID, book.author.c_str(), infoW - pillW - 8);
+      renderer.drawText(SMALL_FONT_ID, kInfoX, lineY, author.c_str());
+    }
+    if (pillW > 0) {
+      const int pillH = renderer.getLineHeight(SMALL_FONT_ID) + 2;
+      renderer.fillRoundedRect(w - 24 - pillW, lineY - 1, pillW, pillH, pillH / 2, Color::Black);
+      renderer.drawText(SMALL_FONT_ID, w - 24 - pillW + 8, lineY, format.c_str(), false);
+    }
+    lineY += 32;
+    if (stats && !stats->chapterTitle.empty()) {
+      const std::string chapter = renderer.truncatedText(SMALL_FONT_ID, stats->chapterTitle.c_str(), infoW);
+      renderer.drawText(SMALL_FONT_ID, kInfoX, lineY, chapter.c_str());
+    }
+    lineY += 34;
+    const uint8_t progress = progressOf(stats);
+    char percent[8];
+    snprintf(percent, sizeof(percent), "%u%%", static_cast<unsigned>(progress));
+    const int percentW = renderer.getTextWidth(SMALL_FONT_ID, percent);
+    renderer.drawText(SMALL_FONT_ID, w - 24 - percentW, lineY - 4, percent);
+    const int barW = infoW - percentW - 12;
+    renderer.drawRoundedRect(kInfoX, lineY, barW, 12, 2, 6, true);
+    const int fill = (barW - 6) * std::min<int>(progress, 100) / 100;
+    if (fill > 0) renderer.fillRect(kInfoX + 3, lineY + 3, fill, 6, true);
+    GUI.drawActionButton(renderer, kContinueButton, tr(STR_CONTINUE_READING), shelfSelected == kTargetCurrent);
+  }
+  drawPlank(renderer, kTopCoverY + kShelfCoverH);
+
+  // Lower shelf: the rest of the recent books, three per page.
+  for (int slot = 0; slot < kSlots; ++slot) {
+    const int index = shelfBookAt(slot);
+    if (index < 0) continue;
+    const int x = slotX(slot);
+    char percent[8];
+    snprintf(percent, sizeof(percent), "%u%%", static_cast<unsigned>(progressOf(statsAt(index))));
+    const int tabW = renderer.getTextWidth(SMALL_FONT_ID, percent) + 20;
+    renderer.fillRoundedRect(x + 10, kLowerCoverY - 26, tabW, 30, 6, Color::Black);
+    renderer.drawText(SMALL_FONT_ID, x + 20, kLowerCoverY - 23, percent, false);
+    drawShelfCover(index, x, kLowerCoverY);
+    if (shelfSelected == kTargetFirstSlot + slot) {
+      renderer.drawRoundedRect(x - 6, kLowerCoverY - 6, kShelfCoverW + 16, kShelfCoverH + 16, 3, 8, true);
+    }
+  }
+  drawPlank(renderer, kLowerCoverY + kShelfCoverH);
+
+  const int pages = shelfPageCount();
+  if (pages > 1) {
+    constexpr int dot = 10;
+    constexpr int gap = 12;
+    const int startX = (w - (pages * dot + (pages - 1) * gap)) / 2;
+    for (int i = 0; i < pages; ++i) {
+      const int dx = startX + i * (dot + gap);
+      if (i == shelfPage)
+        renderer.fillRect(dx, 600, dot, dot, true);
+      else
+        renderer.drawRect(dx, 600, dot, dot, 2, true);
+    }
+  }
+
+  // Library / Transfer / Settings tiles.
+  static constexpr StrId kTileLabels[] = {StrId::STR_ROOM_LIBRARY, StrId::STR_ROOM_TRANSFER, StrId::STR_ROOM_SETTINGS};
+  static constexpr PixelAppIcons::Art kTileArt[] = {PixelAppIcons::kOpenBook, PixelAppIcons::kTransfer,
+                                                    PixelAppIcons::kGear};
+  for (int tile = 0; tile < 3; ++tile) {
+    const int x = tileX(tile);
+    const bool selected = shelfSelected == kTargetFirstTile + tile;
+    renderer.fillRect(x + 4, kTileY + 4, kTileW - 4, kTileH - 4, true);
+    renderer.fillRoundedRect(x, kTileY, kTileW - 4, kTileH - 4, 8, selected ? Color::Black : Color::White);
+    renderer.drawRoundedRect(x, kTileY, kTileW - 4, kTileH - 4, 2, 8, true);
+    drawPixelArt(renderer, kTileArt[tile], x + (kTileW - 4 - 48) / 2, kTileY + 14, 3, !selected);
+    const char* label = I18N.get(kTileLabels[tile]);
+    const int lw = renderer.getTextWidth(UI_12_FONT_ID, label, EpdFontFamily::BOLD);
+    renderer.drawText(UI_12_FONT_ID, x + (kTileW - 4 - lw) / 2, kTileY + 70, label, !selected, EpdFontFamily::BOLD);
+  }
 }

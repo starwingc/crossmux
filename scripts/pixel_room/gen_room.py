@@ -16,6 +16,9 @@ ROOT = os.path.join(HERE, '..', '..')
 OUT = os.path.join(ROOT, 'src', 'components', 'themes', 'pixel', 'PixelRoomArt.h')
 
 
+CLOCK_X, CLOCK_Y, CLOCK_CLEAR_R = 76, 22, 7.2  # art cells; keep in sync with PixelRoom.cpp
+
+
 def ink(ch, x, y):
     if ch == '#':
         return 1
@@ -30,6 +33,10 @@ def main():
     text = open(os.path.join(HERE, 'room.rle')).read().strip()
     grid = [''.join(c * int(n) for c, n in re.findall(r'(\D)(\d+)', r)) for r in text.split('|')]
     H, W = len(grid), len(grid[0])
+    # The wall clock's hands are drawn live by PixelRoom (drawClockHands): blank the face
+    # inside the hour ticks so only the drawn hands show.
+    grid = [''.join('.' if (x - CLOCK_X) ** 2 + (y - CLOCK_Y) ** 2 <= CLOCK_CLEAR_R ** 2 else c
+                    for x, c in enumerate(row)) for y, row in enumerate(grid)]
     assert W % 8 == 0 and all(len(r) == W for r in grid)
     rows = []
     for y, row in enumerate(grid):

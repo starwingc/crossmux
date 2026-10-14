@@ -91,6 +91,7 @@ const char* const* headerArtFor(const char* title) {
   if (!title) return PixelAppIcons::kCatFace;
   const auto is = [title](const StrId id) { return std::strcmp(title, I18N.get(id)) == 0; };
   if (is(StrId::STR_FILE_TRANSFER)) return kRadioArt;
+  if (is(StrId::STR_ROOM_SHELF)) return kShelfArt;
   if (is(StrId::STR_READING_STATS)) return kClockArt;
   if (is(StrId::STR_WEREAD_TITLE)) return PixelAppIcons::kOpenBook;
   if (is(StrId::STR_AO3_TITLE)) return PixelAppIcons::kHeartScroll;

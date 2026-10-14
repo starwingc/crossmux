@@ -35,7 +35,11 @@ struct CatState {
   uint32_t todayMinutes = 0;
   uint32_t goalMinutes = 0;
   uint8_t frame = 0;  // idle animation: 1 = eyes shut (awake) / Zz drifted up (asleep)
+  uint8_t action = 0;  // CatAction being played after a tap (frame alternates 0/1); wakes a sleeping cat
 };
+
+// Things the cat does when tapped, in the order taps cycle through them.
+enum CatAction : uint8_t { CAT_IDLE = 0, CAT_LICK, CAT_SCRATCH, CAT_YAWN, CAT_WAG, CAT_ACTION_COUNT };
 
 void draw(const GfxRenderer& renderer, int selected, const CatState& cat);
 // Sleep screen: the room at night, the cat asleep, today's reading on a card.
