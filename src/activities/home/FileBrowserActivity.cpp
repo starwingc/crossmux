@@ -40,7 +40,7 @@ constexpr int kShelfSide = 18;      // plank inset from the screen edge
 constexpr int kSpineGap = 3;        // air between neighbouring spines
 constexpr int kSpineHeadroom = 22;  // room above the tallest spine for the pulled-out one + marker
 constexpr int kBookendW = 30;
-constexpr unsigned long kOpenFrameMs = 80;
+constexpr unsigned long kOpenSpreadMs = 150;
 
 std::string cleanEntryName(std::string entry) {
   if (!entry.empty() && entry.back() == '/') entry.pop_back();
@@ -263,11 +263,17 @@ void FileBrowserActivity::drawShelfGrid(UiScreen& screen, const fui::Rect rect) 
       PixelShelf::drawBookend(renderer, x + 2, plankY);
       x += kBookendW + 16;
     }
-    // Spare room on the plank gets a lying stack of books or a plant.
-    const int kind = (row + page) % 2;
-    if (rowEnd - x >= PixelShelf::shelfDecorWidth(kind) + 10) {
-      const int decorX = x == rect.x + kShelfSide + 10 ? x + 20 : rowEnd - PixelShelf::shelfDecorWidth(kind);
-      PixelShelf::drawShelfDecor(renderer, kind, decorX, plankY);
+    // Spare room gets ornaments: one at the right end, and an empty plank one at each end.
+    const bool emptyPlank = x == rect.x + kShelfSide + 10;
+    const int right = PixelShelf::shelfDecorKind(basepath.c_str(), page, row, 0);
+    const int rightW = PixelShelf::shelfDecorWidth(right);
+    if (rowEnd - x >= rightW + 10) {
+      PixelShelf::drawShelfDecor(renderer, right, rowEnd - rightW, plankY);
+      if (emptyPlank) {
+        const int left = PixelShelf::shelfDecorKind(basepath.c_str(), page, row, 1);
+        if (PixelShelf::shelfDecorWidth(left) + 40 <= rowWidth - rightW)
+          PixelShelf::drawShelfDecor(renderer, left, x + 20, plankY);
+      }
     }
   }
 
@@ -341,7 +347,7 @@ void FileBrowserActivity::playOpenAnimation() {
     PixelShelf::drawOpeningFrame(renderer, frame, openAnim.from, openAnim.title.c_str(), openAnim.folder,
                                  paintThumbCover, &cover);
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-    delay(frame == 4 ? kOpenFrameMs * 4 : kOpenFrameMs);  // linger on the open spread
+    if (frame == 2) delay(kOpenSpreadMs);  // a beat on the open spread
   }
 }
 

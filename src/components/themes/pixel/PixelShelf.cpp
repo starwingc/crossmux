@@ -473,14 +473,53 @@ inline constexpr const char* kPlantArt[kPlantH] = {
     "..#..#.#...#...", "...#.#.#..#....", "....####.#.....", ".......###.....", ".......#.......",
     "..###########..", "..#.........#..", "..###########..", "...#.......#...", "...#.#.#.#.#...",
     "...#.......#...", "....#.#.#.#....", "....#.......#..", "....#########.."};
+
+// Generated from scratch art (scale 4 on screen). '#' ink, '.' paper, ' ' see-through.
+inline constexpr const char* kCatArt[] = {"  #     #              ", "  ##   ##              ", "  #.###.#              ", " #.......#######       ", " #.##.##........##     ", " #...............#     ", " #..#.#...........#    ", "  #...............#    ", "  #...............# #  ", "  #...............#.#.#", "   ###############..#.#", "   #...............#.# ", "   #################   "};
+inline constexpr const char* kGlobeArt[] = {"     #####     ", "   ##.#...##   ", "  #..###....#  ", " #.#####..#..# ", " #..###..###.# ", "#....#..####..#", "#.......###...#", "#..##....#....#", " #####.......# ", " #.####......# ", "  #.##......#  ", "   ##.....##   ", "     #####     ", "       #       ", "       #       ", "    #######    ", "   #########   "};
+inline constexpr const char* kHourglassArt[] = {"###########", "###########", " #.......# ", " #.......# ", "  #.....#  ", "  #.###.#  ", "   #.#.#   ", "    #.#    ", "    #.#    ", "   #.#.#   ", "  #..#..#  ", "  #.###.#  ", " #.#####.# ", " ######### ", "###########", "###########"};
+inline constexpr const char* kCandleArt[] = {"    #    ", "   ##    ", "   #.#   ", "  #..#   ", "   ##    ", "    #    ", "  #####  ", "  #...#  ", "  #...#  ", "  #..##  ", "  #...#  ", "  #...#  ", "  #...#  ", "  #...#  ", "#########", " #.....# ", "  #####  "};
+inline constexpr const char* kClockArt[] = {" ##     ## ", "####   ####", "## ##### ##", " ##.....## ", "#....#....#", "#....#....#", "#....#....#", "#....###..#", "#.........#", "#.........#", " ##.....## ", "  #######  ", " #       # "};
+inline constexpr const char* kTeacupArt[] = {"   #  #     ", "  #  #      ", "   #  #     ", "  #  #      ", "            ", "#########   ", "#.......####", "#.##.##.#..#", "#.......#..#", "#.......### ", " #.....#    ", "  #####     ", "############"};
+inline constexpr const char* kCactusArt[] = {"     ###     ", "    #...#    ", " ## #...#    ", "#..##...# ## ", "#...#...##..#", "#...#...#...#", " ##.#...#..# ", "   ##...###  ", "    #...#    ", "    #...#    ", " ########### ", " #.........# ", "  #.#.#.#.#  ", "  #.......#  ", "   #######   "};
+inline constexpr const char* kFrameArt[] = {"     ##      ", "    #  #     ", "#############", "#...........#", "#.#########.#", "#.#.......#.#", "#.#...#...#.#", "#.#..#.#..#.#", "#.#.#...#.#.#", "#.##.....##.#", "#.#########.#", "#...........#", "#############", "   #     #   "};
+struct DecorArt {
+  const char* const* art;
+  int w;
+  int h;
+};
+inline constexpr DecorArt kDecorArt[] = {{kCatArt, 23, 13}, {kGlobeArt, 15, 17}, {kHourglassArt, 11, 16}, {kCandleArt, 9, 17}, {kClockArt, 11, 13}, {kTeacupArt, 12, 13}, {kCactusArt, 13, 15}, {kFrameArt, 13, 14}};
+
+constexpr int kDecorScale = 4;
 }  // namespace
 
-int shelfDecorWidth(const int kind) { return kind == 0 ? 120 : kPlantW * 4; }
+int shelfDecorKind(const char* place, const int page, const int row, const int slot) {
+  const uint32_t mix = titleHash(place) % kDecorKinds + page * 3 + row * 7 + slot * 5;
+  return static_cast<int>(mix % kDecorKinds);
+}
+
+int shelfDecorWidth(const int kind) {
+  if (kind == 0) return 120;
+  if (kind == 1) return kPlantW * kDecorScale;
+  return kDecorArt[kind - 2].w * kDecorScale;
+}
 
 void drawShelfDecor(const GfxRenderer& renderer, const int kind, const int x, const int plankY) {
   const int base = plankY + kSpineSink;
   if (kind == 1) {
-    drawPixelArt(renderer, kPlantArt, kPlantW, kPlantH, x, base - kPlantH * 4, 4, true);
+    drawPixelArt(renderer, kPlantArt, kPlantW, kPlantH, x, base - kPlantH * kDecorScale, kDecorScale, true);
+    return;
+  }
+  if (kind >= 2) {
+    const DecorArt& art = kDecorArt[kind - 2];
+    const int top = base - art.h * kDecorScale;
+    for (int row = 0; row < art.h; ++row) {
+      for (int col = 0; col < art.w; ++col) {
+        const char cell = art.art[row][col];
+        if (cell == ' ') continue;
+        renderer.fillRect(x + col * kDecorScale, top + row * kDecorScale, kDecorScale, kDecorScale, cell == '#');
+      }
+    }
     return;
   }
   // Three books lying flat, alternately dark and light, slightly staggered.
@@ -515,7 +554,10 @@ void drawOpeningFrame(const GfxRenderer& renderer, const int frame, const Rect& 
   const Rect closed{hingeX, top, pageW, pageH};
   const Rect rightPage{hingeX, top, pageW, pageH};
 
-  switch (frame) {
+  // Four stages on the panel: cover facing you, cover falling open, the open spread, page zoom.
+  // (Stage 0, the book flying off the shelf, and stage 2, the cover lifting, are skipped for speed.)
+  static constexpr int kStage[kOpenFrames] = {1, 3, 4, 5};
+  switch (kStage[std::clamp(frame, 0, kOpenFrames - 1)]) {
     case 0: {  // drawn out of the shelf, turning towards you
       const Rect b = lerpRect(spine, Rect{hingeX - pageW / 4, top + pageH / 6, pageW * 2 / 3, pageH * 2 / 3}, 1, 2);
       if (b.width < 50) {

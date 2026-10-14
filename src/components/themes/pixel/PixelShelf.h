@@ -41,14 +41,19 @@ void drawSpineMarker(const GfxRenderer& renderer, const Rect& spine);
 void drawBookend(const GfxRenderer& renderer, int x, int plankY);
 // Spines stand this far into the plank's top face (its back edge).
 constexpr int kSpineSink = 8;
-// Odds and ends for spare plank space: a stack of books lying flat (kind 0) or a potted plant (kind 1).
+// Odds and ends for spare plank space: a stack of books lying flat, a potted plant, a sleeping
+// cat, a globe, an hourglass, a candle, a clock, a teacup, a cactus, a framed picture.
+constexpr int kDecorKinds = 10;
+// Which piece goes in a spot; differs between the planks of a page, the two ends of a plank,
+// and from folder to folder (`place` is the folder path).
+int shelfDecorKind(const char* place, int page, int row, int slot);
 int shelfDecorWidth(int kind);
 void drawShelfDecor(const GfxRenderer& renderer, int kind, int x, int plankY);
 
 // --- Opening a book: it leaves the shelf, turns its cover to you and opens. ---
 // Paints a book cover into a rect; returns false when there is none to paint.
 using CoverPainter = bool (*)(const GfxRenderer& renderer, const Rect& rect, void* user);
-constexpr int kOpenFrames = 6;
+constexpr int kOpenFrames = 4;
 // Full-screen frame `frame` (0..kOpenFrames-1) of the animation starting from `spine`.
 void drawOpeningFrame(const GfxRenderer& renderer, int frame, const Rect& spine, const char* title, bool folder,
                       CoverPainter cover, void* user);
