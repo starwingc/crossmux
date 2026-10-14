@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <vector>
@@ -65,15 +66,35 @@ class FileBrowserActivity final : public UiListActivity {
   bool usesIconLayout() const;
   void drawIconGrid(UiScreen& screen, freeink::ui::Rect rect) const;
 
-  // Pixel theme: the library as a bookshelf, book cards standing on planks. Covers
-  // come from cached thumbnails; missing ones are generated one per repaint.
-  enum class ShelfCover : uint8_t { Unchecked, Ready, Missing, None };
-  std::vector<ShelfCover> shelfCovers;  // one per entry in `files`
-  int shelfThumbHeight = 0;
+  // Pixel theme: the library as a real bookshelf. Books stand spine-out, folders are file
+  // boxes; spines are packed onto planks row by row, and a page holds kShelfRows planks.
+  std::vector<uint16_t> spineWidths;  // one per entry in `files`
+  std::vector<int> shelfPageStarts;   // first entry of each page
+  int shelfLayoutWidth = 0;
+  struct VisibleSpine {
+    int index;
+    Rect rect;
+  };
+  std::vector<VisibleSpine> visibleSpines;  // as drawn by the last render
   bool usesShelfLayout() const;
+  void layoutShelfPages(int rowWidth);
+  int shelfPageOf(int index) const;
   int shelfPageStart() const;
   void drawShelfGrid(UiScreen& screen, freeink::ui::Rect rect);
-  bool prepareNextShelfCover();
+
+  // Opening a spine plays a short book-opening animation on the render task; loop() then
+  // performs the open once it has finished.
+  struct OpenAnimation {
+    bool pending = false;
+    std::atomic<bool> done{false};
+    Rect from{};
+    std::string title;
+    std::string path;
+    bool folder = false;
+  } openAnim;
+  bool startOpenAnimation();
+  void playOpenAnimation();
+  void openSelectedEntry();
 
   int listCount() const override { return static_cast<int>(files.size()); }
   void buildScreen(UiScreen& screen) override;
@@ -98,6 +119,7 @@ class FileBrowserActivity final : public UiListActivity {
                                Mode mode = Mode::Books);
   void onEnter() override;
   void onExit() override;
+  void loop() override;
   void render(RenderLock&& lock) override;
   MainTab mainTab() const override {
     return mode == Mode::Books && browserState == BrowserState::Browsing ? MainTab::Library : MainTab::None;

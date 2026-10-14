@@ -35,9 +35,12 @@ constexpr unsigned long GO_HOME_MS = 1000;
 constexpr size_t NAME_BUFFER_SIZE = 500;
 constexpr size_t MAX_COMPONENT_BYTES = 255;
 constexpr char MOVE_HERE_ENTRY[] = "\x01";
-constexpr int kShelfColumns = 3;
-constexpr int kShelfRows = 2;
-constexpr int kShelfPerPage = kShelfColumns * kShelfRows;
+constexpr int kShelfRows = 3;
+constexpr int kShelfSide = 18;      // plank inset from the screen edge
+constexpr int kSpineGap = 3;        // air between neighbouring spines
+constexpr int kSpineHeadroom = 22;  // room above the tallest spine for the pulled-out one + marker
+constexpr int kBookendW = 30;
+constexpr unsigned long kOpenFrameMs = 80;
 
 std::string cleanEntryName(std::string entry) {
   if (!entry.empty() && entry.back() == '/') entry.pop_back();
@@ -125,8 +128,9 @@ void FileBrowserActivity::loadFiles() {
 // ListItem) per file each time it's called.
 void FileBrowserActivity::rebuildRowItems() {
   rowsUseFileIcons = UITheme::getInstance().getTheme().showsFileIcons();
-  // One byte per entry; the vector is rebuilt with `files` and freed in onExit().
-  shelfCovers.assign(usesShelfLayout() ? files.size() : 0, ShelfCover::Unchecked);
+  spineWidths.clear();
+  shelfPageStarts.clear();
+  shelfLayoutWidth = 0;
   rowNames.resize(files.size());
   rowExtensions.resize(files.size());
   rowItems.clear();
@@ -148,6 +152,13 @@ void FileBrowserActivity::rebuildRowItems() {
     if (files[i] != MOVE_HERE_ENTRY) item.icon = listIconFor(UITheme::getFileIcon(files[i]));
     item.actionValue = static_cast<int16_t>(i);
     rowItems.push_back(item);
+  }
+  if (usesShelfLayout()) {
+    spineWidths.resize(files.size());
+    for (size_t i = 0; i < files.size(); ++i) {
+      spineWidths[i] =
+          static_cast<uint16_t>(PixelShelf::spineWidth(renderer, rowNames[i].c_str(), files[i].back() == '/'));
+    }
   }
 
   // One SD pass for every CJK filename in the folder; repaints then hit the
@@ -181,84 +192,88 @@ bool FileBrowserActivity::usesShelfLayout() const {
          SETTINGS.uiTheme == CrossPointSettings::UI_THEME::PIXEL;
 }
 
+void FileBrowserActivity::layoutShelfPages(const int rowWidth) {
+  if (rowWidth == shelfLayoutWidth && !shelfPageStarts.empty()) return;
+  shelfLayoutWidth = rowWidth;
+  shelfPageStarts.clear();
+  int index = 0;
+  const int count = std::min(listCount(), static_cast<int>(spineWidths.size()));
+  do {
+    shelfPageStarts.push_back(index);
+    for (int row = 0; row < kShelfRows && index < count; ++row) {
+      int used = 0;
+      while (index < count && used + spineWidths[index] <= rowWidth) used += spineWidths[index++] + kSpineGap;
+      if (used == 0) ++index;  // a spine wider than the plank still gets a row of its own
+    }
+  } while (index < count);
+}
+
+int FileBrowserActivity::shelfPageOf(const int index) const {
+  const auto it = std::upper_bound(shelfPageStarts.begin(), shelfPageStarts.end(), index);
+  return std::max(0, static_cast<int>(it - shelfPageStarts.begin()) - 1);
+}
+
 int FileBrowserActivity::shelfPageStart() const {
-  const int selected = nav.selected;
-  if (selected <= 0 || files.empty()) return 0;
-  return std::min(selected, listCount() - 1) / kShelfPerPage * kShelfPerPage;
+  if (shelfPageStarts.empty() || files.empty()) return 0;
+  return shelfPageStarts[shelfPageOf(std::clamp<int>(nav.selected, 0, listCount() - 1))];
 }
 
 void FileBrowserActivity::drawShelfGrid(UiScreen& screen, const fui::Rect rect) {
-  const int start = shelfPageStart();
-  const int pages = (listCount() + kShelfPerPage - 1) / kShelfPerPage;
+  const int rowWidth = rect.width - 2 * (kShelfSide + 10);
+  layoutShelfPages(rowWidth);
+  const int page = shelfPageOf(std::clamp<int>(nav.selected, 0, listCount() - 1));
+  const int pages = static_cast<int>(shelfPageStarts.size());
+  const int start = shelfPageStarts[page];
+  const int end = page + 1 < pages ? shelfPageStarts[page + 1] : listCount();
+  nav.visibleRows = std::max(1, end - start);
+  nav.drawnRows = nav.visibleRows;
+  nav.top = start;
+
   constexpr int dotsH = 24;
   const int rowH = (rect.height - (pages > 1 ? dotsH : 0)) / kShelfRows;
-  const int cardH = std::min(PixelShelf::kCardH, rowH - PixelShelf::kPlankH - 18);
-  const int cardW = PixelShelf::kCardW;
-  const int gap = (rect.width - kShelfColumns * cardW) / (kShelfColumns + 1);
-  const int thumbHeight =
-      InxCoverGeometry::thumbnailHeightForCropFill(PixelShelf::coverRect(Rect{0, 0, cardW, cardH}).height);
-  if (thumbHeight != shelfThumbHeight) {
-    shelfThumbHeight = thumbHeight;
-    std::fill(shelfCovers.begin(), shelfCovers.end(), ShelfCover::Unchecked);
-  }
+  const int maxSpineH = rowH - PixelShelf::kPlankH - kSpineHeadroom + PixelShelf::kSpineSink;
   const bool showSelection = showMainTabContentSelection();
+  visibleSpines.clear();
 
+  int index = start;
   for (int row = 0; row < kShelfRows; ++row) {
-    const int plankY = rect.y + row * rowH + 14 + cardH;
-    for (int column = 0; column < kShelfColumns; ++column) {
-      const int index = start + row * kShelfColumns + column;
-      if (index >= listCount()) break;
-      const Rect card{rect.x + gap + column * (cardW + gap), plankY - cardH, cardW, cardH};
-      const std::string& entry = files[index];
-      if (entry.back() == '/') {
-        PixelShelf::drawFolderCard(renderer, card, rowNames[index].c_str());
-      } else {
-        ShelfCover& state = shelfCovers[index];
-        std::string thumb;
-        if (state == ShelfCover::Unchecked || state == ShelfCover::Ready) {
-          switch (BookCoverLoader::cachedThumbnail(joinPath(basepath, entry), shelfThumbHeight, &thumb)) {
-            case BookCoverLoader::ThumbnailState::Ready:
-              state = ShelfCover::Ready;
-              break;
-            case BookCoverLoader::ThumbnailState::Missing:
-              state = ShelfCover::Missing;
-              break;
-            case BookCoverLoader::ThumbnailState::None:
-              state = ShelfCover::None;
-              break;
-          }
-        }
-        bool drawn = false;
-        if (state == ShelfCover::Ready) {
-          HalFile file;
-          if (Storage.openFileForRead("SHELF", thumb, file)) {
-            Bitmap bitmap(file);
-            const Rect cover = PixelShelf::coverRect(card);
-            drawn = bitmap.parseHeaders() == BmpReaderError::Ok &&
-                    renderer.drawBitmapCropToFill(bitmap, cover.x, cover.y, cover.width, cover.height);
-          }
-          if (!drawn) state = ShelfCover::None;
-        }
-        if (drawn) {
-          PixelShelf::drawCardFrame(renderer, card);
-        } else {
-          std::string format = rowExtensions[index].empty() ? std::string() : rowExtensions[index].substr(1);
-          for (char& c : format) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-          PixelShelf::drawNoCoverCard(renderer, card, rowNames[index].c_str(), format.c_str());
-        }
-      }
-      if (showSelection && index == nav.selected) PixelShelf::drawCardSelection(renderer, card);
-      screen.frame().hit(fui::Rect{static_cast<int16_t>(card.x), static_cast<int16_t>(card.y),
-                                   static_cast<int16_t>(card.width), static_cast<int16_t>(card.height)},
+    const int plankY = rect.y + (row + 1) * rowH - PixelShelf::kPlankH;
+    // The plank goes down first so spines stand in its top face rather than float above it.
+    PixelShelf::drawPlank(renderer, rect.x + kShelfSide, rect.width - 2 * kShelfSide, plankY);
+    int x = rect.x + kShelfSide + 10;
+    const int rowEnd = x + rowWidth;
+    while (index < end && (x == rect.x + kShelfSide + 10 || x + spineWidths[index] <= rowEnd)) {
+      const bool folder = files[index].back() == '/';
+      const int w = spineWidths[index];
+      const int h = PixelShelf::spineHeight(rowNames[index].c_str(), folder, maxSpineH);
+      const bool selected = showSelection && index == nav.selected;
+      const Rect spine{x, plankY + PixelShelf::kSpineSink - h - (selected ? 14 : 0), w, h};
+      PixelShelf::drawSpine(renderer, spine, rowNames[index].c_str(), folder);
+      if (selected) PixelShelf::drawSpineMarker(renderer, spine);
+      visibleSpines.push_back(VisibleSpine{index, spine});
+      // Touch the whole column above the plank: narrow spines are still easy to hit.
+      const int hitTop = plankY - maxSpineH - kSpineHeadroom;
+      screen.frame().hit(fui::Rect{static_cast<int16_t>(x - 1), static_cast<int16_t>(hitTop),
+                                   static_cast<int16_t>(w + kSpineGap), static_cast<int16_t>(plankY - hitTop)},
                          ACTION_ROW, static_cast<int16_t>(index), fui::InputTouch | fui::InputLongPress);
+      x += w + kSpineGap;
+      ++index;
     }
-    PixelShelf::drawPlank(renderer, rect.x + 12, rect.width - 24, plankY);
+    if (x > rect.x + kShelfSide + 10 && rowEnd - x >= kBookendW) {
+      PixelShelf::drawBookend(renderer, x + 2, plankY);
+      x += kBookendW + 16;
+    }
+    // Spare room on the plank gets a lying stack of books or a plant.
+    const int kind = (row + page) % 2;
+    if (rowEnd - x >= PixelShelf::shelfDecorWidth(kind) + 10) {
+      const int decorX = x == rect.x + kShelfSide + 10 ? x + 20 : rowEnd - PixelShelf::shelfDecorWidth(kind);
+      PixelShelf::drawShelfDecor(renderer, kind, decorX, plankY);
+    }
   }
 
   if (pages > 1) {
     constexpr int dot = 10;
     constexpr int dotGap = 12;
-    const int page = start / kShelfPerPage;
     const int shown = std::min(pages, 15);
     const int first = std::clamp(page - shown / 2, 0, pages - shown);
     const int startX = rect.x + (rect.width - (shown * dot + (shown - 1) * dotGap)) / 2;
@@ -273,22 +288,61 @@ void FileBrowserActivity::drawShelfGrid(UiScreen& screen, const fui::Rect rect) 
   }
 }
 
-bool FileBrowserActivity::prepareNextShelfCover() {
-  if (!usesShelfLayout() || shelfThumbHeight <= 0) return false;
-  const int start = shelfPageStart();
-  const int end = std::min(listCount(), start + kShelfPerPage);
-  for (int index = start; index < end && index < static_cast<int>(shelfCovers.size()); ++index) {
-    if (shelfCovers[index] != ShelfCover::Missing) continue;
-    {
-      GfxRenderer::FrameBufferLoan loan(renderer);
-      shelfCovers[index] = BookCoverLoader::ensureThumbnail(joinPath(basepath, files[index]), shelfThumbHeight).empty()
-                               ? ShelfCover::None
-                               : ShelfCover::Ready;
+namespace {
+struct CoverSource {
+  std::string thumb;
+};
+
+bool paintThumbCover(const GfxRenderer& renderer, const Rect& rect, void* user) {
+  const auto* source = static_cast<const CoverSource*>(user);
+  if (source->thumb.empty()) return false;
+  HalFile file;
+  if (!Storage.openFileForRead("SHELF", source->thumb, file)) return false;
+  Bitmap bitmap(file);
+  return bitmap.parseHeaders() == BmpReaderError::Ok &&
+         renderer.drawBitmapCropToFill(bitmap, rect.x, rect.y, rect.width, rect.height);
+}
+}  // namespace
+
+bool FileBrowserActivity::startOpenAnimation() {
+  if (!usesShelfLayout() || nav.selected < 0 || nav.selected >= listCount()) return false;
+  const auto it = std::find_if(visibleSpines.begin(), visibleSpines.end(),
+                               [this](const VisibleSpine& s) { return s.index == nav.selected; });
+  if (it == visibleSpines.end()) return false;
+  openAnim.from = it->rect;
+  openAnim.title = rowNames[nav.selected];
+  openAnim.path = joinPath(basepath, cleanEntryName(files[nav.selected]));
+  openAnim.folder = files[nav.selected].back() == '/';
+  openAnim.done = false;
+  openAnim.pending = true;
+  requestUpdate();
+  return true;
+}
+
+void FileBrowserActivity::playOpenAnimation() {
+  CoverSource cover;
+  if (!openAnim.folder) {
+    const int height = PixelShelf::coverThumbHeight();
+    switch (BookCoverLoader::cachedThumbnail(openAnim.path, height, &cover.thumb)) {
+      case BookCoverLoader::ThumbnailState::Ready:
+        break;
+      case BookCoverLoader::ThumbnailState::Missing: {
+        // The shelf (with this spine pulled out) stays on screen while the cover is made.
+        GfxRenderer::FrameBufferLoan loan(renderer);
+        cover.thumb = BookCoverLoader::ensureThumbnail(openAnim.path, height);
+        break;
+      }
+      case BookCoverLoader::ThumbnailState::None:
+        cover.thumb.clear();
+        break;
     }
-    requestUpdate();
-    return true;
   }
-  return false;
+  for (int frame = 0; frame < PixelShelf::kOpenFrames; ++frame) {
+    PixelShelf::drawOpeningFrame(renderer, frame, openAnim.from, openAnim.title.c_str(), openAnim.folder,
+                                 paintThumbCover, &cover);
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    delay(frame == 4 ? kOpenFrameMs * 4 : kOpenFrameMs);  // linger on the open spread
+  }
 }
 
 void FileBrowserActivity::drawIconGrid(UiScreen& screen, const fui::Rect rect) const {
@@ -359,8 +413,11 @@ void FileBrowserActivity::onExit() {
   rowExtensions.clear();
   gridLabels.clear();
   rowItems.clear();
-  shelfCovers.clear();
-  shelfCovers.shrink_to_fit();
+  spineWidths.clear();
+  spineWidths.shrink_to_fit();
+  shelfPageStarts.clear();
+  visibleSpines.clear();
+  openAnim.pending = false;
   fileNameBuffer.reset();
   moveSourcePath.clear();
   moveSourceEntry.clear();
@@ -726,6 +783,15 @@ void FileBrowserActivity::activateSelected() {
     return;
   }
 
+  // Pixel shelf: the book leaves the shelf and opens first; loop() calls openSelectedEntry() after.
+  if (mode == Mode::Books && browserState == BrowserState::Browsing && startOpenAnimation()) return;
+  openSelectedEntry();
+}
+
+void FileBrowserActivity::openSelectedEntry() {
+  if (files.empty() || nav.selected < 0 || nav.selected >= listCount()) return;
+  const std::string& entry = files[nav.selected];
+  const bool isDirectory = entry.back() == '/';
   RenderLock lock(*this);
   if (basepath.back() != '/') basepath += "/";
   if (isDirectory) {
@@ -749,8 +815,11 @@ bool FileBrowserActivity::handleCustomInput() {
     const auto swipe = mappedInput.wasSwipe();
     if (swipe != MappedInputManager::SwipeDir::None && !mappedInput.wasBackGesture()) {
       const bool forward = swipe == MappedInputManager::SwipeDir::Left || swipe == MappedInputManager::SwipeDir::Up;
-      moveSelectionTo(forward ? ButtonNavigator::nextPageIndex(nav.selected, listCount(), kShelfPerPage)
-                              : ButtonNavigator::previousPageIndex(nav.selected, listCount(), kShelfPerPage));
+      if (!shelfPageStarts.empty() && listCount() > 0) {
+        const int pages = static_cast<int>(shelfPageStarts.size());
+        const int page = shelfPageOf(std::clamp<int>(nav.selected, 0, listCount() - 1));
+        moveSelectionTo(shelfPageStarts[(page + (forward ? 1 : pages - 1)) % pages]);
+      }
       return true;
     }
   }
@@ -909,9 +978,6 @@ void FileBrowserActivity::buildScreen(UiScreen& screen) {
   }
 
   if (usesShelfLayout()) {
-    nav.visibleRows = kShelfPerPage;
-    nav.drawnRows = kShelfPerPage;
-    nav.top = shelfPageStart();
     drawShelfGrid(screen, screen.body());
     return;
   }
@@ -980,8 +1046,26 @@ void FileBrowserActivity::drawFooter() {
 
 void FileBrowserActivity::render(RenderLock&& lock) {
   if (editPopup.processRender(renderer, mappedInput)) return;
+  if (openAnim.pending) {
+    if (!openAnim.done) {
+      playOpenAnimation();
+      openAnim.done = true;
+    }
+    return;
+  }
   UiListActivity::render(std::move(lock));
-  prepareNextShelfCover();
+}
+
+void FileBrowserActivity::loop() {
+  if (openAnim.pending) {
+    if (!openAnim.done) return;  // input waits until the book is open
+    openAnim.pending = false;
+    // Wipe the animation's ghosting from whatever comes next (the reader, or the folder's shelf).
+    renderer.requestNextRefresh(HalDisplay::HALF_REFRESH);
+    openSelectedEntry();
+    return;
+  }
+  UiListActivity::loop();
 }
 
 size_t FileBrowserActivity::findEntry(const std::string& name) const {
