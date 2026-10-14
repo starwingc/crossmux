@@ -41,5 +41,7 @@ class PixelTheme final : public InxTheme {
   void drawOptionPopup(const GfxRenderer& renderer, const char* title, const std::vector<std::string>& options,
                        int selectedIndex) const override;
   void drawMainTabBar(const GfxRenderer& renderer, Rect rect, MainTab selected) const override;
+  void drawActionButton(const GfxRenderer& renderer, Rect rect, const char* label,
+                        bool active = false) const override;
   bool showsFileIcons() const override { return true; }
 };

@@ -287,7 +287,7 @@ class BaseTheme {
   virtual void drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                                const char* btn4) const;
   bool buttonHintsVisible() const;
-  void drawActionButton(const GfxRenderer& renderer, Rect rect, const char* label, bool active = false) const;
+  virtual void drawActionButton(const GfxRenderer& renderer, Rect rect, const char* label, bool active = false) const;
   // Shared by every theme's drawButtonHints(): centres a hint label in its box,
   // wrapping to two lines rather than overflowing when it's too wide to fit.
   static void drawHintLabel(GfxRenderer& renderer, int fontId, const char* label, int x, int boxWidth, int boxTop,

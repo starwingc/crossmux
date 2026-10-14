@@ -453,14 +453,14 @@ void MinesweeperGameActivity::renderPlaying() {
 
 void MinesweeperGameActivity::drawTitleBar() {
   const int w = renderer.getScreenWidth();
-  renderer.drawLine(0, TITLE_BAR_H, w - 1, TITLE_BAR_H, true);
+  const int titleX = gameDrawTitleBarFrame(renderer, TITLE_BAR_H, UIIcon::Minesweeper, 12);
 
   const int textH = renderer.getTextHeight(kStatusFont);
   const int y = gameCenterY(TITLE_BAR_H, textH);
 
   char left[64];
   snprintf(left, sizeof(left), "%s · %s", tr(STR_MINESWEEPER_TITLE), difficultyName(difficulty));
-  renderer.drawText(kStatusFont, 12, y, left);
+  renderer.drawText(kStatusFont, titleX, y, left);
 
   char timeStr[8];
   gameFormatElapsed(elapsedMs, timeStr, sizeof(timeStr));

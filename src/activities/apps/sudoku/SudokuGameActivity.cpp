@@ -450,15 +450,14 @@ void SudokuGameActivity::renderPlaying() {
 
 void SudokuGameActivity::drawTitleBar() {
   const int w = renderer.getScreenWidth();
-  // Bottom border at TITLE_BAR_H. 1px so plain drawLine is fine.
-  renderer.drawLine(0, TITLE_BAR_H, w - 1, TITLE_BAR_H, true);
+  const int titleX = gameDrawTitleBarFrame(renderer, TITLE_BAR_H, UIIcon::Sudoku, 12);
 
   const int textH = renderer.getTextHeight(kStatusFont);
   const int y = gameCenterY(TITLE_BAR_H, textH);
 
   char left[64];
   snprintf(left, sizeof(left), "%s · %s", tr(STR_SUDOKU_TITLE), difficultyName(difficulty));
-  renderer.drawText(kStatusFont, 12, y, left);
+  renderer.drawText(kStatusFont, titleX, y, left);
 
   if (state != State::Generating) {
     char timeStr[8];

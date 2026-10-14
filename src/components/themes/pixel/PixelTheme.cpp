@@ -94,6 +94,19 @@ const char* const* headerArtFor(const char* title) {
   if (is(StrId::STR_READING_STATS)) return kClockArt;
   if (is(StrId::STR_WEREAD_TITLE)) return PixelAppIcons::kOpenBook;
   if (is(StrId::STR_AO3_TITLE)) return PixelAppIcons::kHeartScroll;
+  static constexpr struct {
+    StrId title;
+    UIIcon icon;
+  } kAppPages[] = {
+      {StrId::STR_SUDOKU_TITLE, UIIcon::Sudoku},        {StrId::STR_GOMOKU_TITLE, UIIcon::Gomoku},
+      {StrId::STR_SOKOBAN_TITLE, UIIcon::Sokoban},      {StrId::STR_CHINESE_CHESS_TITLE, UIIcon::ChineseChess},
+      {StrId::STR_MINESWEEPER_TITLE, UIIcon::Minesweeper}, {StrId::STR_2048_TITLE, UIIcon::Game2048},
+      {StrId::STR_UGLY_AVATAR, UIIcon::Avatar},         {StrId::STR_PIXEL_SWITCH_TITLE, UIIcon::PixelSwitch},
+      {StrId::STR_CALCULATOR_TITLE, UIIcon::Calculator}, {StrId::STR_WOODFISH_TITLE, UIIcon::Woodfish},
+      {StrId::STR_STANDBY_TITLE, UIIcon::Standby},      {StrId::STR_AIRPAGE_TITLE, UIIcon::AirPage},
+  };
+  for (const auto& page : kAppPages)
+    if (is(page.title)) return PixelAppIcons::forIcon(page.icon);
   return PixelAppIcons::kCatFace;
 }
 
@@ -152,6 +165,23 @@ void PixelTheme::drawHeader(const GfxRenderer& renderer, const Rect rect, const 
   }
   renderer.fillRect(rect.x + kSidePadding, rect.y + rect.height - kRuleThickness, rect.width - kSidePadding * 2,
                     kRuleThickness, true);
+}
+
+// Same drop-shadowed tile as the Apps grid; the shadow stays inside rect. Active = inverted.
+void PixelTheme::drawActionButton(const GfxRenderer& renderer, const Rect rect, const char* label,
+                                  const bool active) const {
+  constexpr int kShadow = 4;
+  constexpr int kRadius = 8;
+  if (rect.width <= kShadow * 3 || rect.height <= kShadow * 3 || !label || !*label) return;
+  const Rect face{rect.x, rect.y, rect.width - kShadow, rect.height - kShadow};
+  renderer.fillRect(face.x + kShadow, face.y + kShadow, face.width, face.height, true);
+  renderer.fillRoundedRect(face.x, face.y, face.width, face.height, kRadius, active ? Color::Black : Color::White);
+  renderer.drawRoundedRect(face.x, face.y, face.width, face.height, 2, kRadius, true);
+  const std::string shown = renderer.truncatedText(UI_10_FONT_ID, label, std::max(1, face.width - 12), EpdFontFamily::BOLD);
+  const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, shown.c_str(), EpdFontFamily::BOLD);
+  renderer.drawText(UI_10_FONT_ID, face.x + (face.width - textWidth) / 2,
+                    face.y + (face.height - renderer.getLineHeight(UI_10_FONT_ID)) / 2, shown.c_str(), !active,
+                    EpdFontFamily::BOLD);
 }
 
 int PixelTheme::getListRowStep(const bool) const { return kRowHeight; }

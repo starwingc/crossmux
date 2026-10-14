@@ -457,7 +457,7 @@ void ChineseChessGameActivity::renderPlaying() {
 
 void ChineseChessGameActivity::drawTitleBar() {
   const int w = renderer.getScreenWidth();
-  renderer.drawLine(0, TITLE_BAR_H, w - 1, TITLE_BAR_H, true);
+  const int titleX = gameDrawTitleBarFrame(renderer, TITLE_BAR_H, UIIcon::ChineseChess, 12);
 
   const int textH = renderer.getTextHeight(kStatusFont);
   const int y = gameCenterY(TITLE_BAR_H, textH);
@@ -469,7 +469,7 @@ void ChineseChessGameActivity::drawTitleBar() {
   } else {
     snprintf(left, sizeof(left), "%s · %s", tr(STR_CHINESE_CHESS_TITLE), modeLabel(mode));
   }
-  renderer.drawText(kStatusFont, 12, y, left);
+  renderer.drawText(kStatusFont, titleX, y, left);
 
   // Right side: side-to-move label + move count. Per-side clock lives in the
   // info panel below; keeping the title bar uncluttered.

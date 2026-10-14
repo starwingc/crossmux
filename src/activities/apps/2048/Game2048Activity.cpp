@@ -203,13 +203,13 @@ void Game2048Activity::render(RenderLock&&) {
 
 void Game2048Activity::drawTitleBar() {
   const int sw = renderer.getScreenWidth();
-  renderer.drawLine(0, TITLE_BAR_H, sw - 1, TITLE_BAR_H, true);
+  const int titleX = gameDrawTitleBarFrame(renderer, TITLE_BAR_H, UIIcon::Game2048, CONTENT_X);
 
   const int textH = renderer.getTextHeight(kStatusFont);
   const int y = gameCenterY(TITLE_BAR_H, textH);
 
   // Left: title.
-  renderer.drawText(kStatusFont, CONTENT_X, y, tr(STR_2048_TITLE));
+  renderer.drawText(kStatusFont, titleX, y, tr(STR_2048_TITLE));
 
   // Right: current score only — Best is intentionally hidden in-game to keep focus on play.
   char right[40];
