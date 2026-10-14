@@ -8,6 +8,7 @@
 #include <cstring>
 #include <iterator>
 #include <string>
+#include <utility>
 
 #include "CrossPointSettings.h"
 #include "PixelRoomArt.h"
@@ -19,21 +20,23 @@
 namespace PixelRoom {
 namespace {
 
-constexpr int kCell = 4;  // one art cell = 4x4 screen px
-constexpr int kCatX = 104;
-constexpr int kCatY = 640;
+constexpr int kCell = 6;     // one cat-sprite cell = 6x6 screen px (two room pixels)
+constexpr int kArtScale = 3;  // one room-art pixel = 3x3 screen px
+constexpr int kArtTop = 40;   // room art starts just under the status bar's top edge
+constexpr int kCatX = 52;     // on the rug
+constexpr int kCatY = 676;
 constexpr int kCatCells = 20;
 
 constexpr std::array<Spot, 9> kSpots = {{
-    {22, 64, 164, 168, 70, 236, StrId::STR_ROOM_WINDOW, StrId::STR_ROOM_SLEEP, Action::Sleep},
-    {216, 68, 80, 112, 222, 182, StrId::STR_ROOM_CLOCK, StrId::STR_ROOM_STATS, Action::Stats},
-    {316, 56, 144, 120, 352, 178, StrId::STR_ROOM_BOARD, StrId::STR_ROOM_RECENT, Action::Recent},
-    {8, 244, 160, 296, 56, 516, StrId::STR_ROOM_SHELF, StrId::STR_ROOM_LIBRARY, Action::Library},
-    {372, 290, 84, 120, 380, 268, StrId::STR_ROOM_LAMP, StrId::STR_ROOM_SETTINGS, Action::Settings},
-    {252, 352, 120, 60, 262, 326, StrId::STR_ROOM_BOOK, StrId::STR_ROOM_READ, Action::Read},
-    {196, 316, 60, 96, 190, 296, StrId::STR_ROOM_RADIO, StrId::STR_ROOM_TRANSFER, Action::Transfer},
-    {284, 540, 186, 164, 330, 520, StrId::STR_ROOM_CABINET, StrId::STR_ROOM_APPS, Action::Apps},
-    {88, 628, 120, 96, 108, 604, StrId::STR_ROOM_CAT, StrId::STR_ROOM_CHECKIN, Action::Cat},
+    {4, 52, 162, 158, 50, 204, StrId::STR_ROOM_WINDOW, StrId::STR_ROOM_SLEEP, Action::Sleep},
+    {180, 64, 96, 136, 196, 204, StrId::STR_ROOM_CLOCK, StrId::STR_ROOM_STATS, Action::Stats},
+    {284, 118, 192, 218, 340, 298, StrId::STR_ROOM_BOARD, StrId::STR_ROOM_RECENT, Action::Recent},
+    {0, 256, 222, 392, 56, 600, StrId::STR_ROOM_SHELF, StrId::STR_ROOM_LIBRARY, Action::Library},
+    {236, 354, 118, 124, 230, 324, StrId::STR_ROOM_LAMP, StrId::STR_ROOM_SETTINGS, Action::Settings},
+    {310, 484, 90, 48, 318, 538, StrId::STR_ROOM_BOOK, StrId::STR_ROOM_READ, Action::Read},
+    {406, 388, 70, 90, 404, 354, StrId::STR_ROOM_RADIO, StrId::STR_ROOM_TRANSFER, Action::Transfer},
+    {354, 664, 126, 136, 380, 688, StrId::STR_ROOM_CABINET, StrId::STR_ROOM_APPS, Action::Apps},
+    {52, 676, 120, 120, 20, 650, StrId::STR_ROOM_CAT, StrId::STR_ROOM_CHECKIN, Action::Cat},
 }};
 
 // --- study cat sprites (20x20 cells, '#' = ink, '_' = force paper) ----------
@@ -176,15 +179,37 @@ void drawCat(const GfxRenderer& r, const CatState& cat, const int originX = kCat
     else
       plainLayers(g, cat.level);
   }
-  r.fillRect(originX, originY, kCatCells * kCell, kCatCells * kCell, false);
+  // Paper inside the outline stays opaque (so the cat reads over the dithered rug); paper
+  // reachable from the sprite's border is left transparent.
+  Grid outside{};
+  std::array<uint16_t, kCatCells * kCatCells> stack{};
+  int top = 0;
+  for (int i = 0; i < kCatCells; ++i) {
+    for (const auto [x, y] : {std::pair{i, 0}, {i, kCatCells - 1}, {0, i}, {kCatCells - 1, i}}) {
+      if (!g[y][x] && !outside[y][x]) {
+        outside[y][x] = true;
+        stack[top++] = static_cast<uint16_t>(y * kCatCells + x);
+      }
+    }
+  }
+  while (top > 0) {
+    const int x = stack[--top] % kCatCells;
+    const int y = stack[top] / kCatCells;
+    for (const auto [nx, ny] : {std::pair{x + 1, y}, {x - 1, y}, {x, y + 1}, {x, y - 1}}) {
+      if (nx < 0 || ny < 0 || nx >= kCatCells || ny >= kCatCells || g[ny][nx] || outside[ny][nx]) continue;
+      outside[ny][nx] = true;
+      stack[top++] = static_cast<uint16_t>(ny * kCatCells + nx);
+    }
+  }
   for (int y = 0; y < kCatCells; ++y)
     for (int x = 0; x < kCatCells; ++x)
-      if (g[y][x]) r.fillRect(originX + x * kCell, originY + y * kCell, kCell, kCell, true);
+      if (g[y][x] || !outside[y][x]) r.fillRect(originX + x * kCell, originY + y * kCell, kCell, kCell, g[y][x]);
 }
 
 void drawRoomArt(const GfxRenderer& r) {
   using namespace PixelRoomArt;
-  for (int y = 0; y < kRows; ++y) {
+  const int rows = std::min(kRows, (r.getScreenHeight() - kArtTop + kArtScale - 1) / kArtScale);
+  for (int y = 0; y < rows; ++y) {
     const uint8_t* row = kRoom + y * kRowBytes;
     int x = 0;
     while (x < kCols) {
@@ -194,7 +219,7 @@ void drawRoomArt(const GfxRenderer& r) {
       }
       int run = 1;
       while (x + run < kCols && ((row[(x + run) >> 3] >> (7 - ((x + run) & 7))) & 1)) ++run;
-      r.fillRect(x * kCell, y * kCell, run * kCell, kCell, true);
+      r.fillRect(x * kArtScale, kArtTop + y * kArtScale, run * kArtScale, kArtScale, true);
       x += run;
     }
   }
@@ -204,6 +229,7 @@ void drawTag(const GfxRenderer& r, const int x, const int y, const char* text, c
   const int w = r.getTextWidth(SMALL_FONT_ID, text) + 12;
   const int h = r.getLineHeight(SMALL_FONT_ID) + 4;
   if (selected) {
+    r.fillRoundedRect(x - 3, y - 3, w + 6, h + 6, 8, Color::White);  // halo keeps it visible on dark art
     r.fillRoundedRect(x, y, w, h, 6, Color::Black);
   } else {
     r.fillRoundedRect(x, y, w, h, 6, Color::White);
@@ -225,7 +251,8 @@ void drawDashedFrame(const GfxRenderer& r, const Spot& s) {
   }
 }
 
-void drawStatusBar(const GfxRenderer& r) {
+// Clock, battery and, in the middle, the selected object's caption ("台灯 · 设置") or the date.
+void drawStatusBar(const GfxRenderer& r, const char* caption = nullptr) {
   const int w = r.getScreenWidth();
   r.fillRect(0, 0, w, 44, false);
   char clock[16];
@@ -233,7 +260,11 @@ void drawStatusBar(const GfxRenderer& r) {
     r.drawText(UI_12_FONT_ID, 16, (44 - r.getLineHeight(UI_12_FONT_ID)) / 2, clock);
   }
   const uint32_t now = TimeUtils::getAuthoritativeTimestamp();
-  if (TimeUtils::isClockValid(now)) {
+  if (caption && *caption) {
+    const int cw = r.getTextWidth(UI_12_FONT_ID, caption, EpdFontFamily::BOLD);
+    r.drawText(UI_12_FONT_ID, (w - cw) / 2, (44 - r.getLineHeight(UI_12_FONT_ID)) / 2, caption, true,
+               EpdFontFamily::BOLD);
+  } else if (TimeUtils::isClockValid(now)) {
     const std::string date = TimeUtils::formatDate(now);
     const int dw = r.getTextWidth(UI_10_FONT_ID, date.c_str());
     r.drawText(UI_10_FONT_ID, (w - dw) / 2, (44 - r.getLineHeight(UI_10_FONT_ID)) / 2, date.c_str());
@@ -261,25 +292,18 @@ uint8_t levelForStreak(const uint32_t d) {
 
 void draw(const GfxRenderer& r, const int selected, const CatState& cat) {
   drawRoomArt(r);
-  drawStatusBar(r);
   drawCat(r, cat);
   for (int i = 0; i < spotCount(); ++i) {
     drawTag(r, kSpots[i].tagX, kSpots[i].tagY, I18N.get(kSpots[i].feature), i == selected);
   }
-  if (selected < 0 || selected >= spotCount()) return;
+  if (selected < 0 || selected >= spotCount()) {
+    drawStatusBar(r);
+    return;
+  }
   const Spot& s = kSpots[selected];
   drawDashedFrame(r, s);
-
-  // Caption bar: "台灯 → 设置"
-  const int bx = 16;
-  const int by = r.getScreenHeight() - 58;
-  const int bw = r.getScreenWidth() - 32;
-  constexpr int bh = 44;
-  r.fillRect(bx + 4, by + 4, bw, bh, true);
-  r.fillRect(bx, by, bw, bh, false);
-  r.drawRoundedRect(bx, by, bw, bh, 2, 8, true);
   const std::string caption = std::string(I18N.get(s.object)) + "  ·  " + I18N.get(s.feature);
-  r.drawText(UI_12_FONT_ID, bx + 14, by + (bh - r.getLineHeight(UI_12_FONT_ID)) / 2, caption.c_str());
+  drawStatusBar(r, caption.c_str());
 }
 
 void drawSleepScene(const GfxRenderer& r, const CatState& cat) {

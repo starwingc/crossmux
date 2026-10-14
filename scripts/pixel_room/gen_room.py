@@ -3,43 +3,41 @@
 
     python3 scripts/pixel_room/gen_room.py
 
-room_art.PATHS holds rectangle-only SVG path data ("M x y h w v h h -w z" runs) on a
-120x200 grid; later entries paint over earlier ones. The header stores one bit per cell,
-MSB first, 15 bytes per row (1 = ink).
+room.rle is a 160x256 grayscale drawing quantized to five levels, one row per '|'-separated
+field of char+count runs: '#' <48, '%' <96, '+' <144, '-' <200, '.' paper (luminance).
+It is reduced to 1-bit for e-ink: '#' ink, '%' 50% checker, '+' 25% dots, '-' '.' paper.
+The header stores one bit per cell, MSB first, 20 bytes per row (1 = ink).
 """
 import os
 import re
-import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
-from room_art import PATHS  # noqa: E402
-
-W, H = 120, 200
-ROOT = os.path.join(os.path.dirname(__file__), '..', '..')
+HERE = os.path.dirname(__file__)
+ROOT = os.path.join(HERE, '..', '..')
 OUT = os.path.join(ROOT, 'src', 'components', 'themes', 'pixel', 'PixelRoomArt.h')
 
 
-def rects(d):
-    # Each subpath: M x y h w v h h -w z  (also accepts the "...H x z" form)
-    for m in re.finditer(r'M(-?\d+) (-?\d+)h(-?\d+)v(-?\d+)', d):
-        x, y, w, h = map(int, m.groups())
-        yield x, y, w, h
+def ink(ch, x, y):
+    if ch == '#':
+        return 1
+    if ch == '%':
+        return int((x + y) % 2 == 0)
+    if ch == '+':
+        return int(x % 2 == 0 and y % 2 == 0)
+    return 0
 
 
 def main():
-    grid = [[0] * W for _ in range(H)]
-    for d, ink in PATHS:
-        for x, y, w, h in rects(d):
-            for yy in range(max(0, y), min(H, y + h)):
-                for xx in range(max(0, x), min(W, x + w)):
-                    grid[yy][xx] = 1 if ink else 0
+    text = open(os.path.join(HERE, 'room.rle')).read().strip()
+    grid = [''.join(c * int(n) for c, n in re.findall(r'(\D)(\d+)', r)) for r in text.split('|')]
+    H, W = len(grid), len(grid[0])
+    assert W % 8 == 0 and all(len(r) == W for r in grid)
     rows = []
-    for row in grid:
+    for y, row in enumerate(grid):
         b = bytearray()
         for i in range(0, W, 8):
             v = 0
             for j in range(8):
-                v = (v << 1) | row[i + j]
+                v = (v << 1) | ink(row[i + j], i + j, y)
             b.append(v)
         rows.append(', '.join(f'0x{v:02X}' for v in b))
     body = ',\n  '.join(rows)
