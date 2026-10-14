@@ -450,9 +450,35 @@ bool InxRecentActivity::handleRoomInput() {
   return false;
 }
 
+// Idle life on the home page: the awake cat blinks every 12 s (eyes shut for 300 ms), the
+// sleeping cat's Zz drift every 6 s. Each step is one fast refresh of the unchanged room, so
+// only the cat's cells change on the panel; it settles 2 min after the last interaction.
+void InxRecentActivity::animateCat() {
+  constexpr unsigned long kSettleMs = 120000;
+  const unsigned long now = millis();
+  if (catCardOpen || now - roomActiveAt > kSettleMs) {
+    if (catFrame != 0 && !catCardOpen) {
+      catFrame = 0;
+      requestUpdate();
+    }
+    catFrameAt = now;
+    return;
+  }
+  const bool asleep = catState.level == 0;
+  const unsigned long hold = catFrame != 0 ? (asleep ? 6000 : 300) : (asleep ? 6000 : 12000);
+  if (now - catFrameAt < hold) return;
+  catFrame ^= 1;
+  catFrameAt = now;
+  requestUpdate();
+}
+
 void InxRecentActivity::loop() {
   if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::PIXEL) {
+    const int before = roomSelected;
+    const bool cardBefore = catCardOpen;
     handleRoomInput();
+    if (roomActiveAt == 0 || roomSelected != before || catCardOpen != cardBefore) roomActiveAt = millis();
+    animateCat();
     return;
   }
   if (!books || books->empty()) return;
@@ -642,6 +668,7 @@ void InxRecentActivity::render(RenderLock&&) {
   renderer.clearScreen();
   if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::PIXEL) {
     refreshCatState();
+    catState.frame = catFrame;
     PixelRoom::draw(renderer, roomSelected, catState);
     if (catCardOpen) PixelRoom::drawCatCard(renderer, catState);
     renderer.displayBuffer();

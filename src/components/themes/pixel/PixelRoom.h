@@ -34,6 +34,7 @@ struct CatState {
   uint32_t streakDays = 0;
   uint32_t todayMinutes = 0;
   uint32_t goalMinutes = 0;
+  uint8_t frame = 0;  // idle animation: 1 = eyes shut (awake) / Zz drifted up (asleep)
 };
 
 void draw(const GfxRenderer& renderer, int selected, const CatState& cat);

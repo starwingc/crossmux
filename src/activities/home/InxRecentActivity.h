@@ -45,6 +45,10 @@ class InxRecentActivity final : public Activity {
   void refreshCatState();
   void activateRoomSpot(int index);
   bool handleRoomInput();
+  void animateCat();
+  uint8_t catFrame = 0;
+  unsigned long catFrameAt = 0;     // when the current idle frame went up
+  unsigned long roomActiveAt = 0;   // last selection/card change; the cat settles 2 min after
   const std::vector<RecentBook>* books = nullptr;
   std::array<const ReadingBookStats*, RecentBooksStore::MAX_RECENT_BOOKS> bookStats{};
   std::array<CoverCacheState, RecentBooksStore::MAX_RECENT_BOOKS> targetCoverStates{};

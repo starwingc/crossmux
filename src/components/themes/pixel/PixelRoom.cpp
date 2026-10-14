@@ -169,6 +169,27 @@ void classLayers(Grid& g, const uint8_t genre, const uint8_t level) {
   }
 }
 
+// Second idle frame. Asleep: the Zz drift up and a small z rises. Awake: a blink, only
+// where the eyes are still bare (no helmet, glasses or goggles over them).
+void animate(Grid& g, const bool asleep) {
+  if (asleep) {
+    paint(g, LAYER(14, 1, "___", "___", "___", "___"));
+    paint(g, LAYER(15, 0, "###", "..#", ".#.", "###"));
+    paint(g, LAYER(11, 4, "##.", ".#.", ".##"));
+    return;
+  }
+  constexpr int kEyeRow = 8;
+  for (const int x : {6, 10}) {
+    if (!g[kEyeRow][x] || !g[kEyeRow][x + 1] || g[kEyeRow][x - 1] || g[kEyeRow][x + 2] || g[kEyeRow + 1][x] ||
+        g[kEyeRow + 1][x + 1])
+      return;
+  }
+  for (const int x : {6, 10}) {
+    g[kEyeRow][x] = g[kEyeRow][x + 1] = false;
+    g[kEyeRow + 1][x] = g[kEyeRow + 1][x + 1] = true;
+  }
+}
+
 #undef LAYER
 
 void drawCat(const GfxRenderer& r, const CatState& cat, const int originX = kCatX, const int originY = kCatY) {
@@ -179,6 +200,7 @@ void drawCat(const GfxRenderer& r, const CatState& cat, const int originX = kCat
     else
       plainLayers(g, cat.level);
   }
+  if (cat.frame != 0) animate(g, cat.level == 0);
   // Paper inside the outline stays opaque (so the cat reads over the dithered rug); paper
   // reachable from the sprite's border is left transparent.
   Grid outside{};
@@ -201,6 +223,13 @@ void drawCat(const GfxRenderer& r, const CatState& cat, const int originX = kCat
       stack[top++] = static_cast<uint16_t>(ny * kCatCells + nx);
     }
   }
+  // A half-cell paper halo around every ink cell keeps thin strokes (the Zz) legible.
+  constexpr int kHalo = kCell / 2;
+  for (int y = 0; y < kCatCells; ++y)
+    for (int x = 0; x < kCatCells; ++x)
+      if (g[y][x])
+        r.fillRect(originX + x * kCell - kHalo, originY + y * kCell - kHalo, kCell + 2 * kHalo, kCell + 2 * kHalo,
+                   false);
   for (int y = 0; y < kCatCells; ++y)
     for (int x = 0; x < kCatCells; ++x)
       if (g[y][x] || !outside[y][x]) r.fillRect(originX + x * kCell, originY + y * kCell, kCell, kCell, g[y][x]);
