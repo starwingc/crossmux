@@ -1,6 +1,8 @@
 #include "PixelRoom.h"
 
 #include <GfxRenderer.h>
+#include <HalGPIO.h>
+#include <HalPowerManager.h>
 
 #include <algorithm>
 #include <array>
@@ -355,6 +357,56 @@ void drawDashedFrame(const GfxRenderer& r, const Spot& s) {
   }
 }
 
+// Battery as a crystal ball on a stand: the magic inside fills to the charge level, with the
+// percentage written beside it. Sparkles orbit the ball while it is charging. `right` is the
+// x the whole thing ends at.
+void drawBatteryOrb(const GfxRenderer& r, const int right, const int top, const bool showNumber) {
+  constexpr int kCells = 14;
+  constexpr int kScale = 2;
+  const int percent = std::clamp<int>(powerManager.getBatteryPercentage(), 0, 100);
+  const bool charging = gpio.isUsbConnected();
+  const int orbX = right - kCells * kScale - (charging ? 8 : 0);
+  // Liquid surface row: row 12 is the bottom of the inside, row 1 the top.
+  const int surface = 12 - (percent * 11 + 50) / 100;
+  for (int j = 0; j < kCells; ++j) {
+    for (int i = 0; i < kCells; ++i) {
+      const float dx = i - 6.5f, dy = j - 6.5f;
+      const float d = std::sqrt(dx * dx + dy * dy);
+      if (d > 6.8f) continue;
+      bool ink;
+      if (d > 5.6f) {
+        ink = true;  // glass rim
+      } else if ((i == 3 && (j == 3 || j == 4)) || (i == 4 && j == 3)) {
+        ink = false;  // glint
+      } else if (j == surface && percent > 0) {
+        ink = true;  // surface of the magic
+      } else {
+        ink = j > surface && (i + j) % 2 == 0;
+      }
+      r.fillRect(orbX + i * kScale, top + j * kScale, kScale, kScale, ink);
+    }
+  }
+  // Stand.
+  const int standY = top + kCells * kScale - 2;
+  r.fillRect(orbX + 4 * kScale, standY, 6 * kScale, kScale + 2, true);
+  r.fillRect(orbX + 2 * kScale, standY + kScale + 2, 10 * kScale, kScale, true);
+  if (charging) {
+    // A big and a small sparkle beside the ball.
+    const int sparkX = orbX + kCells * kScale + 4;
+    r.fillRect(sparkX - 1, top + 1, 2, 7, true);
+    r.fillRect(sparkX - 3, top + 3, 7, 2, true);
+    r.fillRect(sparkX + 1, top + 15, 2, 5, true);
+    r.fillRect(sparkX, top + 16, 4, 2, true);
+  }
+  if (showNumber) {
+    char text[8];
+    snprintf(text, sizeof(text), "%d%%", percent);
+    const int tw = r.getTextWidth(UI_10_FONT_ID, text, EpdFontFamily::BOLD);
+    r.drawText(UI_10_FONT_ID, orbX - 8 - tw, top + (kCells * kScale - r.getLineHeight(UI_10_FONT_ID)) / 2 + 1, text,
+               true, EpdFontFamily::BOLD);
+  }
+}
+
 // Clock, battery and, in the middle, the selected object's caption ("台灯 · 设置") or the date.
 void drawStatusBar(const GfxRenderer& r, const char* caption = nullptr) {
   const int w = r.getScreenWidth();
@@ -373,8 +425,8 @@ void drawStatusBar(const GfxRenderer& r, const char* caption = nullptr) {
     const int dw = r.getTextWidth(UI_10_FONT_ID, date.c_str());
     r.drawText(UI_10_FONT_ID, (w - dw) / 2, (44 - r.getLineHeight(UI_10_FONT_ID)) / 2, date.c_str());
   }
-  GUI.drawBatteryRight(r, Rect{w - 16 - 60, 12, 60, 20},
-                       SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS);
+  drawBatteryOrb(r, w - 16, 5,
+                 SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS);
 }
 
 }  // namespace
